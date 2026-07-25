@@ -32,14 +32,6 @@ def alta_carga_combustible(
     return crear_carga_combustible(datos, registrado_por=usuario_actual.id)
 
 
-@router.get("/", response_model=list[CargaCombustibleOut])
-def obtener_cargas_combustible(
-    camion_id: str = None,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
-):
-    return listar_cargas_combustible(camion_id=camion_id)
-
-
 @router.get("/{camion_id}/gasto-total")
 def obtener_gasto_total(
     camion_id: str,

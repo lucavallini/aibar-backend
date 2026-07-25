@@ -29,10 +29,3 @@ def alta_multa(
     return crear_multa(datos, registrado_por=usuario_actual.id)
 
 
-@router.get("/", response_model=list[MultaOut])
-def obtener_multas(
-    camion_id: str = None,
-    chofer_id: str = None,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
-):
-    return listar_multas(camion_id=camion_id, chofer_id=chofer_id)

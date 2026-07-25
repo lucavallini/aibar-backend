@@ -31,4 +31,20 @@ class ChoferUpdate(BaseModel):
 
 
 class ChoferCambiarEstado(BaseModel):
-    estado: str = Field(..., pattern="^(disponible|viajando|inactivo)$")
+    estado: str = Field(..., pattern="^(disponible|viajando|inactivo|licencia)$")
+
+
+class KmsPorMes(BaseModel):
+    mes: str
+    kms: float
+
+
+class ChoferDetalle(BaseModel):
+    id: UUID
+    nombre_completo: str
+    dni: Optional[str] = None
+    telefono: Optional[str] = None
+    estado: str
+    activo: bool
+    kms_mes_actual: float
+    historico: list[KmsPorMes]

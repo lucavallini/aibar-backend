@@ -18,7 +18,7 @@ def alta_usuario(
 def obtener_usuarios(
     pagina: int = 1,
     tamano_pagina: int = 20,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
     return listar_usuarios(pagina, tamano_pagina)
 

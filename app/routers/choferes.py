@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends
-from app.models.chofer import ChoferCreate, ChoferOut, ChoferUpdate, ChoferCambiarEstado
+from app.models.chofer import ChoferCreate, ChoferOut, ChoferUpdate, ChoferCambiarEstado, ChoferDetalle
 from app.models.usuario import UsuarioOut
 from app.services.chofer_service import (
     crear_chofer,
     listar_choferes,
     obtener_chofer,
+    obtener_detalle_chofer,
     actualizar_chofer,
     cambiar_estado_chofer,
     dar_de_baja_chofer,
@@ -33,14 +34,6 @@ def alta_chofer(
     usuario_actual: UsuarioOut = Depends(require_rol("administrador"))
 ):
     return crear_chofer(datos, creado_por=usuario_actual.id)
-
-
-@router.get("/", response_model=list[ChoferOut])
-def obtener_choferes(
-    activos_only: bool = True,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
-):
-    return listar_choferes(activos_only)
 
 
 @router.get("/{chofer_id}", response_model=ChoferOut)
@@ -75,6 +68,14 @@ def baja_chofer(
     usuario_actual: UsuarioOut = Depends(require_rol("administrador"))
 ):
     return dar_de_baja_chofer(chofer_id, usuario_id=usuario_actual.id)
+
+@router.get("/{chofer_id}/detalle", response_model=ChoferDetalle)
+def obtener_chofer_detalle(
+    chofer_id: str,
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+):
+    return obtener_detalle_chofer(chofer_id)
+
 
 @router.get("/{chofer_id}/kms-mes-actual")
 def obtener_kms_mes_actual(

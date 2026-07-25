@@ -31,14 +31,6 @@ def alta_camion(
 ):
     return crear_camion(datos, usuario_id=usuario_actual.id)
 
-@router.get("/", response_model=list[CamionOut])
-def obtener_camiones(
-    activos_only: bool = True,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
-):
-    return listar_camiones(activos_only)
-
-
 @router.get("/{camion_id}", response_model=CamionOut)
 def obtener_camion_por_id(
     camion_id: str,

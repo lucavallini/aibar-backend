@@ -136,6 +136,17 @@ def calcular_kms_mes_actual(chofer_id: str) -> float:
     return total
 
 
+def obtener_detalle_chofer(chofer_id: str) -> dict:
+    chofer = obtener_chofer(chofer_id)
+    kms_mes = calcular_kms_mes_actual(chofer_id)
+    historico = calcular_kms_historico(chofer_id)
+    return {
+        **chofer,
+        "kms_mes_actual": kms_mes,
+        "historico": historico,
+    }
+
+
 def calcular_kms_historico(chofer_id: str) -> list:
     resultado = (
         supabase.table("viajes")

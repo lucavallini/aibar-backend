@@ -1,9 +1,10 @@
 from app.database import supabase
 from uuid import UUID
 from typing import Optional
+from datetime import date, timedelta
 from app.database import supabase, armar_respuesta_paginada
 
-def listar_auditoria(usuario_id: str = None, entidad: str = None, pagina: int = 1, tamano_pagina: int = 50) -> dict:
+def listar_auditoria(usuario_id: str = None, entidad: str = None, dias: int = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
     query = supabase.table("auditoria").select("*", count="exact")
 
     if usuario_id:
@@ -11,6 +12,10 @@ def listar_auditoria(usuario_id: str = None, entidad: str = None, pagina: int = 
 
     if entidad:
         query = query.eq("entidad", entidad)
+
+    if dias:
+        desde = (date.today() - timedelta(days=dias)).isoformat()
+        query = query.gte("fecha_hora", desde)
 
     query = query.order("fecha_hora", desc=True)
 
