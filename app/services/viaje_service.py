@@ -6,7 +6,7 @@ from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from app.database import supabase, armar_respuesta_paginada
 
-def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
+def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, patente: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
     query = supabase.table("viajes").select("*", count="exact")
 
     if chofer_id:
@@ -18,6 +18,15 @@ def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, p
     if dias:
         cutoff = datetime.now(timezone.utc) - timedelta(days=dias)
         query = query.gte("fecha_inicio", cutoff.isoformat())
+
+    if patente:
+        camiones_data = supabase.table("camiones").select("id").ilike("patente", f"%{patente}%").execute()
+        camion_ids = [c["id"] for c in camiones_data.data]
+        if camion_ids:
+            ids_str = ",".join(camion_ids)
+            query = query.or_(f"camion_id.in.({ids_str}),camion_id_2.in.({ids_str})")
+        else:
+            query = query.eq("id", "00000000-0000-0000-0000-000000000000")
 
     query = query.order("fecha_inicio", desc=True)
 

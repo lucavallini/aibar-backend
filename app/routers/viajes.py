@@ -23,11 +23,12 @@ def obtener_viajes(
     chofer_id: str = None,
     estado: str = None,
     dias: int = None,
+    patente: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return listar_viajes(chofer_id, estado, dias, pagina, tamano_pagina)
+    return listar_viajes(chofer_id, estado, dias, patente, pagina, tamano_pagina)
 
 
 @router.post("/", response_model=ViajeOut, status_code=201)

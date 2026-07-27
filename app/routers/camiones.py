@@ -18,11 +18,12 @@ router = APIRouter(prefix="/camiones", tags=["camiones"])
 @router.get("/", response_model=RespuestaPaginada[CamionOut])
 def obtener_camiones(
     activos_only: bool = True,
+    busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return listar_camiones(activos_only, pagina, tamano_pagina)
+    return listar_camiones(activos_only, busqueda, pagina, tamano_pagina)
 
 @router.post("/", response_model=CamionOut, status_code=201)
 def alta_camion(

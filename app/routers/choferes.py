@@ -21,11 +21,12 @@ router = APIRouter(prefix="/choferes", tags=["choferes"])
 @router.get("/", response_model=RespuestaPaginada[ChoferOut])
 def obtener_choferes(
     activos_only: bool = True,
+    busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return listar_choferes(activos_only, pagina, tamano_pagina)
+    return listar_choferes(activos_only, busqueda, pagina, tamano_pagina)
 
 
 @router.post("/", response_model=ChoferOut, status_code=201)

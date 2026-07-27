@@ -5,11 +5,14 @@ from app.database import supabase, armar_respuesta_paginada
 from app.services.auditoria_service import registrar_evento
 from uuid import UUID
 
-def listar_camiones(activos_only: bool = True, pagina: int = 1, tamano_pagina: int = 20) -> dict:
+def listar_camiones(activos_only: bool = True, busqueda: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
     query = supabase.table("camiones").select("*", count="exact")
 
     if activos_only:
         query = query.eq("activo", True)
+
+    if busqueda:
+        query = query.ilike("patente", f"%{busqueda}%")
 
     query = query.order("patente")
 

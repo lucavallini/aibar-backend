@@ -7,11 +7,14 @@ import calendar
 from app.database import supabase, armar_respuesta_paginada
 from app.services.auditoria_service import registrar_evento
 
-def listar_choferes(activos_only: bool = True, pagina: int = 1, tamano_pagina: int = 20) -> dict:
+def listar_choferes(activos_only: bool = True, busqueda: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
     query = supabase.table("choferes").select("*", count="exact")
 
     if activos_only:
         query = query.eq("activo", True)
+
+    if busqueda:
+        query = query.ilike("nombre_completo", f"%{busqueda}%")
 
     query = query.order("nombre_completo")
 
