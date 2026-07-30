@@ -29,6 +29,7 @@ class ViajeOut(BaseModel):
     carga: Optional[str] = None
     tarifa: Optional[float] = None
     kms_recorridos: Optional[float] = None
+    kms_descargado: Optional[float] = None
     fecha_inicio: datetime
     fecha_fin: Optional[datetime] = None
     estado: str
@@ -50,6 +51,18 @@ class ViajeEditar(BaseModel):
     fecha_inicio: Optional[datetime] = None
     camion_id_2: Optional[UUID] = None
 
+class ViajeReanudar(BaseModel):
+    chofer_id: Optional[UUID] = None
+    camion_id: Optional[UUID] = None
+    camion_id_2: Optional[UUID] = None
+    cliente: Optional[str] = None
+    origen: Optional[str] = None
+    destino: Optional[str] = None
+    carga: Optional[str] = None
+    tarifa: Optional[float] = None
+    fecha_inicio: Optional[datetime] = None
+
+
 class ViajeCancelar(BaseModel):
     motivo_cancelacion: str = Field(..., min_length=5, max_length=500)
 
@@ -57,4 +70,5 @@ class ViajeCancelar(BaseModel):
 class ViajeFinalizar(BaseModel):
     fecha_fin: datetime
     kms_recorridos: float = Field(..., gt=0)
+    kms_descargado: Optional[float] = None
     litros_combustible: Optional[float] = None

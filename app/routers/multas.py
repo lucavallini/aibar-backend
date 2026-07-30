@@ -16,7 +16,7 @@ def obtener_multas(
     chofer_id: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return listar_multas(camion_id, chofer_id, pagina, tamano_pagina)
 

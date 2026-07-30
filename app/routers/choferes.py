@@ -24,7 +24,7 @@ def obtener_choferes(
     busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return listar_choferes(activos_only, busqueda, pagina, tamano_pagina)
 
@@ -40,7 +40,7 @@ def alta_chofer(
 @router.get("/{chofer_id}", response_model=ChoferOut)
 def obtener_chofer_por_id(
     chofer_id: str,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return obtener_chofer(chofer_id)
 
@@ -73,7 +73,7 @@ def baja_chofer(
 @router.get("/{chofer_id}/detalle", response_model=ChoferDetalle)
 def obtener_chofer_detalle(
     chofer_id: str,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return obtener_detalle_chofer(chofer_id)
 
@@ -81,7 +81,7 @@ def obtener_chofer_detalle(
 @router.get("/{chofer_id}/kms-mes-actual")
 def obtener_kms_mes_actual(
     chofer_id: str,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return {"chofer_id": chofer_id, "kms_mes_actual": calcular_kms_mes_actual(chofer_id)}
 
@@ -89,6 +89,6 @@ def obtener_kms_mes_actual(
 @router.get("/{chofer_id}/kms-historico")
 def obtener_kms_historico(
     chofer_id: str,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return {"chofer_id": chofer_id, "historico": calcular_kms_historico(chofer_id)}

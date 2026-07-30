@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends
-from app.models.viaje import ViajeCreate, ViajeOut, ViajeEditar, ViajeCancelar, ViajeFinalizar
+from app.models.viaje import ViajeCreate, ViajeOut, ViajeEditar, ViajeCancelar, ViajeFinalizar, ViajeReanudar
 from app.models.usuario import UsuarioOut
 from app.services.viaje_service import (
     crear_viaje,
     editar_viaje,
     cancelar_viaje,
+    reanudar_viaje,
     iniciar_viaje,
     finalizar_viaje,
     listar_viajes,
@@ -24,11 +25,14 @@ def obtener_viajes(
     estado: str = None,
     dias: int = None,
     patente: str = None,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+    empresa_id: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
-    return listar_viajes(chofer_id, estado, dias, patente, pagina, tamano_pagina)
+    return listar_viajes(chofer_id, estado, dias, patente, fecha_desde, fecha_hasta, empresa_id, pagina, tamano_pagina)
 
 
 @router.post("/", response_model=ViajeOut, status_code=201)
@@ -55,6 +59,15 @@ def cancelar_viaje_endpoint(
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
     return cancelar_viaje(viaje_id, datos, usuario_id=usuario_actual.id)
+
+
+@router.post("/{viaje_id}/reanudar", response_model=ViajeOut)
+def reanudar_viaje_endpoint(
+    viaje_id: str,
+    datos: ViajeReanudar,
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+):
+    return reanudar_viaje(viaje_id, datos, usuario_id=usuario_actual.id)
 
 
 @router.post("/{viaje_id}/iniciar", response_model=ViajeOut)
@@ -86,6 +99,6 @@ def agregar_vuelta_endpoint(
 @router.get("/rendimiento-combustible/{chofer_id}")
 def obtener_rendimiento_combustible(
     chofer_id: str,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return calcular_rendimiento_combustible(chofer_id)

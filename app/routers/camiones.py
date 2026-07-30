@@ -21,7 +21,7 @@ def obtener_camiones(
     busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return listar_camiones(activos_only, busqueda, pagina, tamano_pagina)
 
@@ -35,7 +35,7 @@ def alta_camion(
 @router.get("/{camion_id}", response_model=CamionOut)
 def obtener_camion_por_id(
     camion_id: str,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return obtener_camion(camion_id)
 

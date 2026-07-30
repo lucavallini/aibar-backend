@@ -1,9 +1,9 @@
 import re
 import unicodedata
-from fastapi import HTTPException
 from app.database import supabase
+from app.models.usuario import UsuarioCreate, UsuarioUpdate
 from app.core.security import hash_password
-from app.models.usuario import UsuarioCreate, UsuarioUpdate, UsuarioOut
+from app.core.exceptions import NotFoundError, BadRequestError, InternalError
 from app.services.auditoria_service import registrar_evento
 from uuid import UUID
 from app.database import supabase, armar_respuesta_paginada
@@ -54,7 +54,7 @@ def crear_usuario(datos: UsuarioCreate, creado_por: UUID) -> dict:
     dni_existente = supabase.table('usuarios').select('id').eq('dni', datos.dni).execute()
 
     if dni_existente.data:
-        raise HTTPException(status_code=400, detail="DNI vinculado a otro usuario.")
+        raise BadRequestError("DNI vinculado a otro usuario.")
 
     nombre_usuario = generar_nombre_usuario(datos.nombre_completo, datos.dni)
     password_hash = hash_password(datos.password)
@@ -70,7 +70,7 @@ def crear_usuario(datos: UsuarioCreate, creado_por: UUID) -> dict:
     resultado = supabase.table("usuarios").insert(nuevo_usuario).execute()
 
     if not resultado.data:
-        raise HTTPException(status_code=500, detail="No se pudo crear el usuario")
+        raise InternalError("No se pudo crear el usuario")
 
     usuario_creado = resultado.data[0]
 
@@ -87,17 +87,17 @@ def crear_usuario(datos: UsuarioCreate, creado_por: UUID) -> dict:
 def actualizar_usuario(usuario_id: str, datos: UsuarioUpdate, editado_por: UUID) -> dict:
     resultado_actual = supabase.table("usuarios").select("*").eq("id", usuario_id).execute()
     if not resultado_actual.data:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise NotFoundError("Usuario no encontrado")
 
-    cambios = datos.model_dump(exclude_unset=True)
+    cambios = datos.model_dump(exclude_unset=True, mode="json")
 
     if not cambios:
-        raise HTTPException(status_code=400, detail="No se enviaron campos para actualizar")
+        raise BadRequestError("No se enviaron campos para actualizar")
 
     if "dni" in cambios:
         dni_existente = supabase.table("usuarios").select("id").eq("dni", cambios["dni"]).execute()
         if dni_existente.data and dni_existente.data[0]["id"] != usuario_id:
-            raise HTTPException(status_code=400, detail="Ya existe otro usuario con ese DNI")
+            raise BadRequestError("Ya existe otro usuario con ese DNI")
 
     resultado = supabase.table("usuarios").update(cambios).eq("id", usuario_id).execute()
     usuario_editado = resultado.data[0]
@@ -116,10 +116,10 @@ def actualizar_usuario(usuario_id: str, datos: UsuarioUpdate, editado_por: UUID)
 def dar_de_baja_usuario(usuario_id: str, dado_de_baja_por: UUID) -> dict:
     resultado_actual = supabase.table("usuarios").select("*").eq("id", usuario_id).execute()
     if not resultado_actual.data:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise NotFoundError("Usuario no encontrado")
 
     if usuario_id == str(dado_de_baja_por):
-        raise HTTPException(status_code=400, detail="No podés darte de baja a vos mismo")
+        raise BadRequestError("No podés darte de baja a vos mismo")
 
     resultado = supabase.table("usuarios").update({"activo": False}).eq("id", usuario_id).execute()
 

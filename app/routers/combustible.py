@@ -16,12 +16,15 @@ router = APIRouter(prefix="/combustible", tags=["combustible"])
 @router.get("/", response_model=RespuestaPaginada[CargaCombustibleOut])
 def obtener_cargas_combustible(
     camion_id: str = None,
+    chofer_id: str = None,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
     solo_ultimos_30_dias: bool = True,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
-    return listar_cargas_combustible(camion_id, pagina, tamano_pagina, solo_ultimos_30_dias)
+    return listar_cargas_combustible(camion_id, chofer_id, fecha_desde, fecha_hasta, pagina, tamano_pagina, solo_ultimos_30_dias)
 
 
 @router.post("/", response_model=CargaCombustibleOut, status_code=201)
@@ -35,6 +38,6 @@ def alta_carga_combustible(
 @router.get("/{camion_id}/gasto-total")
 def obtener_gasto_total(
     camion_id: str,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return calcular_gasto_total_camion(camion_id)

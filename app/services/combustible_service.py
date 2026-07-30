@@ -1,6 +1,6 @@
-from fastapi import HTTPException
 from app.database import supabase
 from app.models.combustible import CargaCombustibleCreate
+from app.core.exceptions import NotFoundError, InternalError
 from uuid import UUID
 from app.database import supabase, armar_respuesta_paginada
 
@@ -9,6 +9,9 @@ from app.services.auditoria_service import registrar_evento
 
 def listar_cargas_combustible(
     camion_id: str = None,
+    chofer_id: str = None,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
     solo_ultimos_30_dias: bool = True,
@@ -18,7 +21,19 @@ def listar_cargas_combustible(
     if camion_id:
         query = query.eq("camion_id", camion_id)
 
-    if solo_ultimos_30_dias:
+    if chofer_id:
+        chofer = supabase.table("choferes").select("camion_id").eq("id", chofer_id).execute()
+        if chofer.data and chofer.data[0].get("camion_id"):
+            query = query.eq("camion_id", chofer.data[0]["camion_id"])
+        else:
+            query = query.eq("id", "00000000-0000-0000-0000-000000000000")
+
+    if fecha_desde:
+        query = query.gte("fecha", fecha_desde)
+    if fecha_hasta:
+        query = query.lte("fecha", fecha_hasta)
+
+    if solo_ultimos_30_dias and not fecha_desde and not fecha_hasta:
         hace_30_dias = (date.today() - timedelta(days=30)).isoformat()
         query = query.gte("fecha", hace_30_dias)
 
@@ -29,12 +44,12 @@ def listar_cargas_combustible(
 def crear_carga_combustible(datos: CargaCombustibleCreate, registrado_por: UUID) -> dict:
     camion = supabase.table("camiones").select("id").eq("id", str(datos.camion_id)).execute()
     if not camion.data:
-        raise HTTPException(status_code=404, detail="El camión indicado no existe")
+        raise NotFoundError("El camión indicado no existe")
 
     if datos.viaje_id:
         viaje = supabase.table("viajes").select("id").eq("id", str(datos.viaje_id)).execute()
         if not viaje.data:
-            raise HTTPException(status_code=404, detail="El viaje indicado no existe")
+            raise NotFoundError("El viaje indicado no existe")
 
     nueva_carga = datos.model_dump(mode="json", exclude_unset=True)
     nueva_carga["registrado_por"] = str(registrado_por)
@@ -42,7 +57,7 @@ def crear_carga_combustible(datos: CargaCombustibleCreate, registrado_por: UUID)
     resultado = supabase.table("cargas_combustible").insert(nueva_carga).execute()
 
     if not resultado.data:
-        raise HTTPException(status_code=500, detail="No se pudo registrar la carga de combustible")
+        raise InternalError("No se pudo registrar la carga de combustible")
 
     carga_creada = resultado.data[0]
 

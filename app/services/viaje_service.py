@@ -1,12 +1,13 @@
-from fastapi import HTTPException
 from app.database import supabase
-from app.models.viaje import ViajeCreate, ViajeEditar, ViajeCancelar, ViajeFinalizar, ViajeOut
+from app.models.viaje import ViajeCreate, ViajeEditar, ViajeCancelar, ViajeFinalizar, ViajeOut, ViajeReanudar
 from app.services.auditoria_service import registrar_evento
+from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, InternalError
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from app.database import supabase, armar_respuesta_paginada
+from app.utils.fields import upper_fields
 
-def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, patente: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
+def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, patente: str = None, fecha_desde: str = None, fecha_hasta: str = None, empresa_id: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
     query = supabase.table("viajes").select("*", count="exact")
 
     if chofer_id:
@@ -19,6 +20,11 @@ def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, p
         cutoff = datetime.now(timezone.utc) - timedelta(days=dias)
         query = query.gte("fecha_inicio", cutoff.isoformat())
 
+    if fecha_desde:
+        query = query.gte("fecha_inicio", fecha_desde)
+    if fecha_hasta:
+        query = query.lte("fecha_inicio", fecha_hasta + "T23:59:59")
+
     if patente:
         camiones_data = supabase.table("camiones").select("id").ilike("patente", f"%{patente}%").execute()
         camion_ids = [c["id"] for c in camiones_data.data]
@@ -28,18 +34,44 @@ def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, p
         else:
             query = query.eq("id", "00000000-0000-0000-0000-000000000000")
 
+    if empresa_id:
+        choferes_data = supabase.table("choferes").select("id").eq("empresa_id", empresa_id).execute()
+        camiones_data = supabase.table("camiones").select("id").eq("empresa_id", empresa_id).execute()
+        acoplados_data = supabase.table("acoplados").select("id").eq("empresa_id", empresa_id).execute()
+        chofer_ids = [c["id"] for c in choferes_data.data]
+        camion_ids = [c["id"] for c in camiones_data.data]
+        acoplado_ids = [c["id"] for c in acoplados_data.data]
+        or_clauses = []
+        if chofer_ids:
+            or_clauses.append(f"chofer_id.in.({','.join(chofer_ids)})")
+        if camion_ids:
+            or_clauses.append(f"camion_id.in.({','.join(camion_ids)})")
+        if acoplado_ids:
+            ids_str = ",".join(acoplado_ids)
+            or_clauses.append(f"camion_id_2.in.({ids_str})")
+        if not or_clauses:
+            query = query.eq("id", "00000000-0000-0000-0000-000000000000")
+        else:
+            query = query.or_(",".join(or_clauses))
+
     query = query.order("fecha_inicio", desc=True)
 
     result = armar_respuesta_paginada(query, pagina, tamano_pagina)
 
     ids_vueltas = set()
+    ids_a_buscar = set()
     for viaje in result["items"]:
         if viaje.get("viaje_vuelta_id"):
-            vuelta_id = viaje["viaje_vuelta_id"]
-            ids_vueltas.add(vuelta_id)
-            vuelta = supabase.table("viajes").select("*").eq("id", vuelta_id).execute()
-            if vuelta.data:
-                viaje["viaje_vuelta"] = vuelta.data[0]
+            ids_vueltas.add(viaje["viaje_vuelta_id"])
+            ids_a_buscar.add(viaje["viaje_vuelta_id"])
+
+    if ids_a_buscar:
+        vueltas = supabase.table("viajes").select("*").in_("id", list(ids_a_buscar)).execute()
+        vueltas_map = {v["id"]: v for v in vueltas.data}
+        for viaje in result["items"]:
+            vid = viaje.get("viaje_vuelta_id")
+            if vid and vid in vueltas_map:
+                viaje["viaje_vuelta"] = vueltas_map[vid]
 
     result["items"] = [v for v in result["items"] if v["id"] not in ids_vueltas]
     return result
@@ -58,7 +90,7 @@ def _obtener_nombre_usuario(usuario_id: str) -> str:
 def _obtener_viaje(viaje_id: str) -> dict:
     resultado = supabase.table("viajes").select("*").eq("id", viaje_id).execute()
     if not resultado.data:
-        raise HTTPException(status_code=404, detail="Viaje no encontrado")
+        raise NotFoundError("Viaje no encontrado")
     return resultado.data[0]
 
 
@@ -74,12 +106,12 @@ def crear_viaje(datos: ViajeCreate, asignado_por: UUID) -> dict:
     )
 
     if not reserva.data:
-        raise HTTPException(
-            status_code=409,
-            detail="El chofer ya no está disponible. Actualizá la pantalla e intentá de nuevo."
+        raise ConflictError(
+            "El chofer ya no está disponible. Actualizá la pantalla e intentá de nuevo."
         )
 
     nuevo_viaje = datos.model_dump(mode="json", exclude_unset=True)
+    upper_fields(nuevo_viaje, "origen", "destino", "cliente", "carga")
     nuevo_viaje["asignado_por"] = str(asignado_por)
     if "camion_id_2" in nuevo_viaje and nuevo_viaje["camion_id_2"] is None:
         nuevo_viaje.pop("camion_id_2")
@@ -90,7 +122,7 @@ def crear_viaje(datos: ViajeCreate, asignado_por: UUID) -> dict:
 
     if not resultado.data:
         supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
-        raise HTTPException(status_code=500, detail="No se pudo crear el viaje")
+        raise InternalError("No se pudo crear el viaje")
 
     viaje_creado = resultado.data[0]
 
@@ -111,12 +143,13 @@ def editar_viaje(viaje_id: str, datos: ViajeEditar, usuario_id: UUID) -> dict:
     viaje = _obtener_viaje(viaje_id)
 
     if viaje["estado"] not in ("pendiente", "en_curso"):
-        raise HTTPException(status_code=400, detail="Solo se pueden editar viajes pendientes o en curso")
+        raise BadRequestError("Solo se pueden editar viajes pendientes o en curso")
 
     cambios = datos.model_dump(exclude_unset=True, mode="json")
+    upper_fields(cambios, "origen", "destino", "cliente", "carga")
 
     if not cambios:
-        raise HTTPException(status_code=400, detail="No se enviaron campos para actualizar")
+        raise BadRequestError("No se enviaron campos para actualizar")
 
     resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
     viaje_editado = resultado.data[0]
@@ -132,15 +165,67 @@ def editar_viaje(viaje_id: str, datos: ViajeEditar, usuario_id: UUID) -> dict:
     return viaje_editado
 
 
+def reanudar_viaje(viaje_id: str, datos: ViajeReanudar, usuario_id: UUID) -> dict:
+    viaje = _obtener_viaje(viaje_id)
+
+    if viaje["estado"] != "cancelado":
+        raise BadRequestError("Solo se pueden reanudar viajes cancelados")
+
+    cambios = {}
+    for campo in ("origen", "destino", "cliente", "carga"):
+        valor = getattr(datos, campo, None)
+        if valor is not None:
+            cambios[campo] = valor
+    upper_fields(cambios, "origen", "destino", "cliente", "carga")
+    for campo in ("camion_id", "camion_id_2"):
+        valor = getattr(datos, campo, None)
+        if valor is not None:
+            cambios[campo] = str(valor)
+    for campo in ("tarifa", "fecha_inicio"):
+        valor = getattr(datos, campo, None)
+        if valor is not None:
+            cambios[campo] = valor.isoformat() if campo == "fecha_inicio" else valor
+
+    cambios["estado"] = "pendiente"
+    cambios["motivo_cancelacion"] = None
+
+    nuevo_chofer_id = str(datos.chofer_id) if datos.chofer_id else viaje["chofer_id"]
+    if nuevo_chofer_id != viaje["chofer_id"]:
+        reserva = (
+            supabase.table("choferes")
+            .update({"estado": "viajando"})
+            .eq("id", nuevo_chofer_id)
+            .eq("estado", "disponible")
+            .execute()
+        )
+        if not reserva.data:
+            raise ConflictError("El chofer seleccionado no está disponible")
+        cambios["chofer_id"] = nuevo_chofer_id
+    else:
+        supabase.table("choferes").update({"estado": "viajando"}).eq("id", viaje["chofer_id"]).execute()
+
+    resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
+
+    registrar_evento(
+        usuario_id=usuario_id,
+        tipo_accion="reanudacion",
+        entidad="viaje",
+        entidad_id=viaje_id,
+        detalle=f"Viaje reanudado. Campos modificados: {', '.join(c for c in cambios if c not in ('estado', 'motivo_cancelacion'))}",
+    )
+
+    return resultado.data[0]
+
+
 def cancelar_viaje(viaje_id: str, datos: ViajeCancelar, usuario_id: UUID) -> dict:
     viaje = _obtener_viaje(viaje_id)
 
     if viaje["estado"] in ("finalizado", "cancelado"):
-        raise HTTPException(status_code=400, detail="Este viaje ya no se puede cancelar")
+        raise BadRequestError("Este viaje ya no se puede cancelar")
 
     resultado = (
         supabase.table("viajes")
-        .update({"estado": "cancelado", "motivo_cancelacion": datos.motivo_cancelacion})
+        .update({"estado": "cancelado", "motivo_cancelacion": datos.motivo_cancelacion.upper() if datos.motivo_cancelacion else datos.motivo_cancelacion})
         .eq("id", viaje_id)
         .execute()
     )
@@ -163,7 +248,7 @@ def iniciar_viaje(viaje_id: str, usuario_id: UUID) -> dict:
     viaje = _obtener_viaje(viaje_id)
 
     if viaje["estado"] != "pendiente":
-        raise HTTPException(status_code=400, detail="Solo se pueden iniciar viajes pendientes")
+        raise BadRequestError("Solo se pueden iniciar viajes pendientes")
 
     resultado = supabase.table("viajes").update({"estado": "en_curso"}).eq("id", viaje_id).execute()
 
@@ -182,10 +267,10 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
     viaje_original = _obtener_viaje(viaje_id)
 
     if viaje_original["viaje_vuelta_id"]:
-        raise HTTPException(status_code=400, detail="Este viaje ya tiene una vuelta asignada")
+        raise BadRequestError("Este viaje ya tiene una vuelta asignada")
 
     if viaje_original["estado"] not in ("pendiente", "en_curso", "finalizado"):
-        raise HTTPException(status_code=400, detail="No se puede agregar vuelta a un viaje cancelado")
+        raise BadRequestError("No se puede agregar vuelta a un viaje cancelado")
 
     chofer_id_str = str(datos.chofer_id)
 
@@ -198,9 +283,10 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
             .execute()
         )
         if not reserva.data:
-            raise HTTPException(status_code=409, detail="El chofer de la vuelta no está disponible")
+            raise ConflictError("El chofer de la vuelta no está disponible")
 
     nuevo_viaje = datos.model_dump(mode="json", exclude_unset=True)
+    upper_fields(nuevo_viaje, "origen", "destino", "cliente", "carga")
     nuevo_viaje["asignado_por"] = str(asignado_por)
     nuevo_viaje.pop("viaje_vuelta_id", None)
     for campo in ("camion_id_2", "viaje_vuelta_id"):
@@ -212,7 +298,7 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
     if not resultado.data:
         if viaje_original["chofer_id"] != chofer_id_str:
             supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
-        raise HTTPException(status_code=500, detail="No se pudo crear el viaje de vuelta")
+        raise InternalError("No se pudo crear el viaje de vuelta")
 
     viaje_vuelta_id = resultado.data[0]["id"]
 
@@ -270,16 +356,19 @@ def finalizar_viaje(viaje_id: str, datos: ViajeFinalizar, usuario_id: UUID) -> d
     viaje = _obtener_viaje(viaje_id)
 
     if viaje["estado"] != "en_curso":
-        raise HTTPException(status_code=400, detail="Solo se pueden finalizar viajes en curso")
+        raise BadRequestError("Solo se pueden finalizar viajes en curso")
+
+    total_kms = datos.kms_recorridos + (datos.kms_descargado or 0)
 
     km_por_litro = None
     if datos.litros_combustible and datos.litros_combustible > 0:
-        km_por_litro = round(datos.kms_recorridos / datos.litros_combustible, 2)
+        km_por_litro = round(total_kms / datos.litros_combustible, 2)
 
     cambios = {
         "estado": "finalizado",
         "fecha_fin": datos.fecha_fin.isoformat(),
-        "kms_recorridos": datos.kms_recorridos,
+        "kms_recorridos": total_kms,
+        "kms_descargado": datos.kms_descargado,
         "litros_combustible": datos.litros_combustible,
         "km_por_litro": km_por_litro,
     }
@@ -288,7 +377,9 @@ def finalizar_viaje(viaje_id: str, datos: ViajeFinalizar, usuario_id: UUID) -> d
 
     supabase.table("choferes").update({"estado": "disponible"}).eq("id", viaje["chofer_id"]).execute()
 
-    detalle = f"Viaje finalizado, {datos.kms_recorridos} kms"
+    detalle = f"Viaje finalizado, {datos.kms_recorridos} kms cargados"
+    if datos.kms_descargado:
+        detalle += f", {datos.kms_descargado} kms descargados"
     if datos.litros_combustible:
         detalle += f", {datos.litros_combustible} L"
     if km_por_litro:

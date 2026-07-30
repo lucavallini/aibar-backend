@@ -9,6 +9,7 @@ class ChoferCreate(BaseModel):
     dni: Optional[str] = Field(None, min_length=6, max_length=20)
     telefono: Optional[str] = None
     camion_id: Optional[UUID] = None
+    empresa_id: Optional[UUID] = None
 
 
 class ChoferOut(BaseModel):
@@ -18,6 +19,7 @@ class ChoferOut(BaseModel):
     telefono: Optional[str] = None
     estado: str
     camion_id: Optional[UUID] = None
+    empresa_id: Optional[UUID] = None
     activo: bool
     creado_en: datetime
     creado_por: Optional[UUID] = None
@@ -28,6 +30,7 @@ class ChoferUpdate(BaseModel):
     dni: Optional[str] = None
     telefono: Optional[str] = None
     camion_id: Optional[UUID] = None
+    empresa_id: Optional[UUID] = None
 
 
 class ChoferCambiarEstado(BaseModel):
@@ -45,6 +48,7 @@ class ChoferDetalle(BaseModel):
     dni: Optional[str] = None
     telefono: Optional[str] = None
     estado: str
+    empresa_id: Optional[UUID] = None
     activo: bool
     kms_mes_actual: float
     historico: list[KmsPorMes]

@@ -1,11 +1,12 @@
-from fastapi import HTTPException
 from app.database import supabase
 from app.models.chofer import ChoferCreate, ChoferUpdate, ChoferCambiarEstado
+from app.core.exceptions import NotFoundError, BadRequestError, InternalError
 from uuid import UUID
 from datetime import date
 import calendar
 from app.database import supabase, armar_respuesta_paginada
 from app.services.auditoria_service import registrar_evento
+from app.utils.fields import upper_fields
 
 def listar_choferes(activos_only: bool = True, busqueda: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
     query = supabase.table("choferes").select("*", count="exact")
@@ -21,23 +22,24 @@ def listar_choferes(activos_only: bool = True, busqueda: str = None, pagina: int
     return armar_respuesta_paginada(query, pagina, tamano_pagina)
 
 def crear_chofer(datos: ChoferCreate, creado_por: UUID) -> dict:
+    nuevo_chofer = datos.model_dump(mode="json")
+    upper_fields(nuevo_chofer, "nombre_completo", "dni", "telefono")
+
     if datos.dni:
-        dni_existente = supabase.table("choferes").select("id").eq("dni", datos.dni).execute()
+        dni_existente = supabase.table("choferes").select("id").eq("dni", nuevo_chofer["dni"]).execute()
         if dni_existente.data:
-            raise HTTPException(status_code=400, detail="Ya existe un chofer con ese DNI")
+            raise BadRequestError("Ya existe un chofer con ese DNI")
 
     if datos.camion_id:
         camion = supabase.table("camiones").select("id").eq("id", str(datos.camion_id)).execute()
         if not camion.data:
-            raise HTTPException(status_code=404, detail="El camión indicado no existe")
-
-    nuevo_chofer = datos.model_dump(mode="json")
+            raise NotFoundError("El camión indicado no existe")
     nuevo_chofer["creado_por"] = str(creado_por)
 
     resultado = supabase.table("choferes").insert(nuevo_chofer).execute()
 
     if not resultado.data:
-        raise HTTPException(status_code=500, detail="No se pudo crear el chofer")
+        raise InternalError("No se pudo crear el chofer")
 
     chofer_creado = resultado.data[0]
 
@@ -58,7 +60,7 @@ def obtener_chofer(chofer_id: str) -> dict:
     resultado = supabase.table("choferes").select("*").eq("id", chofer_id).execute()
 
     if not resultado.data:
-        raise HTTPException(status_code=404, detail="Chofer no encontrado")
+        raise NotFoundError("Chofer no encontrado")
 
     return resultado.data[0]
 
@@ -67,14 +69,15 @@ def actualizar_chofer(chofer_id: str, datos: ChoferUpdate, usuario_id: UUID) -> 
     obtener_chofer(chofer_id)
 
     cambios = datos.model_dump(exclude_unset=True, mode="json")
+    upper_fields(cambios, "nombre_completo", "dni", "telefono")
 
     if not cambios:
-        raise HTTPException(status_code=400, detail="No se enviaron campos para actualizar")
+        raise BadRequestError("No se enviaron campos para actualizar")
 
     if "camion_id" in cambios and cambios["camion_id"] is not None:
         camion = supabase.table("camiones").select("id").eq("id", cambios["camion_id"]).execute()
         if not camion.data:
-            raise HTTPException(status_code=404, detail="El camión indicado no existe")
+            raise NotFoundError("El camión indicado no existe")
 
     resultado = supabase.table("choferes").update(cambios).eq("id", chofer_id).execute()
     chofer_editado = resultado.data[0]

@@ -10,6 +10,7 @@ class CamionCreate(BaseModel):
     modelo: Optional[str] = None
     anio: Optional[int] = None
     tipo: Optional[str] = None  # acoplado, doble acoplado, chasis, furgón, batea, etc
+    empresa_id: Optional[UUID] = None
 
 
 class CamionOut(BaseModel):
@@ -19,6 +20,7 @@ class CamionOut(BaseModel):
     modelo: Optional[str] = None
     anio: Optional[int] = None
     tipo: Optional[str] = None
+    empresa_id: Optional[UUID] = None
     activo: bool
     creado_en: datetime
 
@@ -28,3 +30,4 @@ class CamionUpdate(BaseModel):
     modelo: Optional[str] = None
     anio: Optional[int] = None
     tipo: Optional[str] = None
+    empresa_id: Optional[UUID] = None

@@ -15,6 +15,6 @@ def obtener_auditoria(
     dias: int = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
-    usuario_actual: UsuarioOut = Depends(require_rol("administrador"))
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "aibar"))
 ):
     return listar_auditoria(usuario_id, entidad, dias, pagina, tamano_pagina)
