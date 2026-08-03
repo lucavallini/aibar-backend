@@ -34,6 +34,7 @@ class ViajeOut(BaseModel):
     fecha_fin: Optional[datetime] = None
     estado: str
     motivo_cancelacion: Optional[str] = None
+    solo_ida: bool = False
     asignado_por: UUID
     autorizado_por: Optional[UUID] = None
     creado_en: datetime
@@ -72,3 +73,4 @@ class ViajeFinalizar(BaseModel):
     kms_recorridos: float = Field(..., gt=0)
     kms_descargado: Optional[float] = None
     litros_combustible: Optional[float] = None
+    solo_ida: bool = False

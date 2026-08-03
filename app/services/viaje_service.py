@@ -396,6 +396,9 @@ def iniciar_viaje(viaje_id: str, usuario_id: UUID) -> dict:
 def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dict:
     viaje_original = _obtener_viaje(viaje_id)
 
+    if viaje_original.get("solo_ida"):
+        raise BadRequestError("Este viaje es solo de ida, no se puede agregar vuelta")
+
     if viaje_original["viaje_vuelta_id"]:
         raise BadRequestError("Este viaje ya tiene una vuelta asignada")
 
@@ -524,6 +527,7 @@ def finalizar_viaje(viaje_id: str, datos: ViajeFinalizar, usuario_id: UUID) -> d
         "kms_descargado": datos.kms_descargado,
         "litros_combustible": datos.litros_combustible,
         "km_por_litro": km_por_litro,
+        "solo_ida": datos.solo_ida,
     }
 
     resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
