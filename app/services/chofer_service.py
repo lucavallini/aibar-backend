@@ -1,6 +1,6 @@
 from app.database import supabase
 from app.models.chofer import ChoferCreate, ChoferUpdate, ChoferCambiarEstado
-from app.core.exceptions import NotFoundError, BadRequestError, InternalError
+from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, InternalError
 from uuid import UUID
 from datetime import date
 import calendar
@@ -96,14 +96,38 @@ def actualizar_chofer(chofer_id: str, datos: ChoferUpdate, usuario_id: UUID) -> 
 def cambiar_estado_chofer(chofer_id: str, datos: ChoferCambiarEstado, usuario_id: UUID) -> dict:
     obtener_chofer(chofer_id)
 
-    resultado = supabase.table("choferes").update({"estado": datos.estado}).eq("id", chofer_id).execute()
+    en_uso = (
+        supabase.table("viajes")
+        .select("id")
+        .eq("chofer_id", chofer_id)
+        .in_("estado", ["pendiente", "en_curso"])
+        .execute()
+    )
+    if en_uso.data:
+        raise ConflictError("No se puede cambiar el estado: el chofer tiene un viaje pendiente o en curso")
+
+    cambios = {"estado": datos.estado}
+
+    if datos.estado == "no_disponible":
+        motivo = (datos.motivo_no_disponible or "").strip()
+        if not motivo:
+            raise BadRequestError("Debés indicar el motivo del estado no disponible")
+        cambios["motivo_no_disponible"] = motivo
+    else:
+        cambios["motivo_no_disponible"] = None
+
+    resultado = supabase.table("choferes").update(cambios).eq("id", chofer_id).execute()
+
+    detalle = f"Estado cambiado a: {datos.estado}"
+    if "motivo_no_disponible" in cambios and cambios["motivo_no_disponible"]:
+        detalle += f" (motivo: {cambios['motivo_no_disponible']})"
 
     registrar_evento(
         usuario_id=usuario_id,
         tipo_accion="edicion",
         entidad="chofer",
         entidad_id=chofer_id,
-        detalle=f"Estado cambiado a: {datos.estado}",
+        detalle=detalle,
     )
 
     return resultado.data[0]

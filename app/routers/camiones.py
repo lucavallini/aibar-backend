@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends
-from app.models.camion import CamionCreate, CamionOut, CamionUpdate
+from app.models.camion import CamionCreate, CamionOut, CamionUpdate, CamionCambiarEstado
 from app.models.usuario import UsuarioOut
 from app.services.camion_service import (
     crear_camion,
     listar_camiones,
     obtener_camion,
     actualizar_camion,
+    cambiar_estado_camion,
     dar_de_baja_camion,
 )
 from app.dependencies import require_rol
@@ -39,6 +40,15 @@ def obtener_camion_por_id(
 ):
     return obtener_camion(camion_id)
 
+
+
+@router.patch("/{camion_id}/estado", response_model=CamionOut)
+def cambiar_estado(
+    camion_id: str,
+    datos: CamionCambiarEstado,
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+):
+    return cambiar_estado_camion(camion_id, datos, usuario_id=usuario_actual.id)
 
 
 @router.patch("/{camion_id}", response_model=CamionOut)

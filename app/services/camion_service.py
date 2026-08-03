@@ -1,7 +1,7 @@
 from app.database import supabase
-from app.models.camion import CamionCreate, CamionUpdate
+from app.models.camion import CamionCreate, CamionUpdate, CamionCambiarEstado
 from app.database import supabase, armar_respuesta_paginada
-from app.core.exceptions import NotFoundError, BadRequestError, InternalError
+from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, InternalError
 from app.services.auditoria_service import registrar_evento
 from uuid import UUID
 from app.utils.fields import upper_fields
@@ -75,6 +75,46 @@ def actualizar_camion(camion_id: str, datos: CamionUpdate, usuario_id: UUID) -> 
     )
 
     return camion_editado
+
+
+def cambiar_estado_camion(camion_id: str, datos: CamionCambiarEstado, usuario_id: UUID) -> dict:
+    obtener_camion(camion_id)
+
+    en_uso = (
+        supabase.table("viajes")
+        .select("id")
+        .in_("estado", ["pendiente", "en_curso"])
+        .or_(f"camion_id.eq.{camion_id},camion_id_2.eq.{camion_id}")
+        .execute()
+    )
+    if en_uso.data:
+        raise ConflictError("No se puede cambiar el estado: el chasis está asignado a un viaje pendiente o en curso")
+
+    cambios = {"estado": datos.estado}
+
+    if datos.estado == "no_disponible":
+        motivo = (datos.motivo_no_disponible or "").strip()
+        if not motivo:
+            raise BadRequestError("Debés indicar el motivo del estado no disponible")
+        cambios["motivo_no_disponible"] = motivo
+    else:
+        cambios["motivo_no_disponible"] = None
+
+    resultado = supabase.table("camiones").update(cambios).eq("id", camion_id).execute()
+
+    detalle = f"Estado cambiado a: {datos.estado}"
+    if cambios["motivo_no_disponible"]:
+        detalle += f" (motivo: {cambios['motivo_no_disponible']})"
+
+    registrar_evento(
+        usuario_id=usuario_id,
+        tipo_accion="edicion",
+        entidad="camion",
+        entidad_id=camion_id,
+        detalle=detalle,
+    )
+
+    return resultado.data[0]
 
 
 def dar_de_baja_camion(camion_id: str, usuario_id: UUID) -> dict:

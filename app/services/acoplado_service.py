@@ -1,6 +1,6 @@
 from app.database import supabase, armar_respuesta_paginada
-from app.models.acoplado import AcopladoCreate, AcopladoUpdate
-from app.core.exceptions import NotFoundError, BadRequestError, InternalError
+from app.models.acoplado import AcopladoCreate, AcopladoUpdate, AcopladoCambiarEstado
+from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, InternalError
 from app.services.auditoria_service import registrar_evento
 from uuid import UUID
 from app.utils.fields import upper_fields
@@ -82,6 +82,46 @@ def actualizar_acoplado(acoplado_id: str, datos: AcopladoUpdate, usuario_id: UUI
     )
 
     return acoplado_editado
+
+
+def cambiar_estado_acoplado(acoplado_id: str, datos: AcopladoCambiarEstado, usuario_id: UUID) -> dict:
+    obtener_acoplado(acoplado_id)
+
+    en_uso = (
+        supabase.table("viajes")
+        .select("id")
+        .in_("estado", ["pendiente", "en_curso"])
+        .or_(f"camion_id.eq.{acoplado_id},camion_id_2.eq.{acoplado_id}")
+        .execute()
+    )
+    if en_uso.data:
+        raise ConflictError("No se puede cambiar el estado: el acoplado está asignado a un viaje pendiente o en curso")
+
+    cambios = {"estado": datos.estado}
+
+    if datos.estado == "no_disponible":
+        motivo = (datos.motivo_no_disponible or "").strip()
+        if not motivo:
+            raise BadRequestError("Debés indicar el motivo del estado no disponible")
+        cambios["motivo_no_disponible"] = motivo
+    else:
+        cambios["motivo_no_disponible"] = None
+
+    resultado = supabase.table("acoplados").update(cambios).eq("id", acoplado_id).execute()
+
+    detalle = f"Estado cambiado a: {datos.estado}"
+    if cambios["motivo_no_disponible"]:
+        detalle += f" (motivo: {cambios['motivo_no_disponible']})"
+
+    registrar_evento(
+        usuario_id=usuario_id,
+        tipo_accion="edicion",
+        entidad="acoplado",
+        entidad_id=acoplado_id,
+        detalle=detalle,
+    )
+
+    return resultado.data[0]
 
 
 def dar_de_baja_acoplado(acoplado_id: str, usuario_id: UUID) -> dict:

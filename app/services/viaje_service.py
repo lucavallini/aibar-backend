@@ -94,12 +94,82 @@ def _obtener_viaje(viaje_id: str) -> dict:
     return resultado.data[0]
 
 
+def _tabla_unidad(unidad_id: str) -> str:
+    camion = supabase.table("camiones").select("id").eq("id", unidad_id).execute()
+    if camion.data:
+        return "camiones"
+    acoplado = supabase.table("acoplados").select("id").eq("id", unidad_id).execute()
+    if acoplado.data:
+        return "acoplados"
+    return None
+
+
+def _reservar_unidad(unidad_id, estado_nuevo: str) -> None:
+    if not unidad_id:
+        return
+    unidad_id = str(unidad_id)
+    tabla = _tabla_unidad(unidad_id)
+    if not tabla:
+        raise BadRequestError("La unidad indicada no existe")
+
+    resultado = (
+        supabase.table(tabla)
+        .update({"estado": estado_nuevo})
+        .eq("id", unidad_id)
+        .eq("estado", "disponible")
+        .execute()
+    )
+    if not resultado.data:
+        nombre = "El chasis" if tabla == "camiones" else "El acoplado"
+        raise ConflictError(
+            f"{nombre} seleccionado ya no está disponible. Actualizá la pantalla e intentá de nuevo."
+        )
+
+
+def _liberar_unidad(unidad_id, excepto: str = None) -> None:
+    if not unidad_id:
+        return
+    unidad_id = str(unidad_id)
+    tabla = _tabla_unidad(unidad_id)
+    if not tabla:
+        return
+
+    en_uso = (
+        supabase.table("viajes")
+        .select("id")
+        .in_("estado", ["pendiente", "en_curso"])
+        .or_(f"camion_id.eq.{unidad_id},camion_id_2.eq.{unidad_id}")
+        .execute()
+    )
+    if excepto:
+        en_uso.data = [v for v in en_uso.data if v["id"] != excepto]
+    if en_uso.data:
+        return
+
+    supabase.table(tabla).update({"estado": "disponible"}).eq("id", unidad_id).in_(
+        "estado", ["esperando_iniciar_viaje", "viajando"]
+    ).execute()
+
+
+def _unidad_en_viaje(unidad_id: str) -> bool:
+    if not unidad_id:
+        return False
+    en_uso = (
+        supabase.table("viajes")
+        .select("id")
+        .in_("estado", ["pendiente", "en_curso"])
+        .or_(f"camion_id.eq.{unidad_id},camion_id_2.eq.{unidad_id}")
+        .execute()
+    )
+    return bool(en_uso.data)
+
+
 def crear_viaje(datos: ViajeCreate, asignado_por: UUID) -> dict:
     chofer_id_str = str(datos.chofer_id)
 
     reserva = (
         supabase.table("choferes")
-        .update({"estado": "viajando"})
+        .update({"estado": "esperando_iniciar_viaje"})
         .eq("id", chofer_id_str)
         .eq("estado", "disponible")
         .execute()
@@ -109,6 +179,19 @@ def crear_viaje(datos: ViajeCreate, asignado_por: UUID) -> dict:
         raise ConflictError(
             "El chofer ya no está disponible. Actualizá la pantalla e intentá de nuevo."
         )
+
+    unidades_reservadas = []
+    try:
+        for campo in ("camion_id", "camion_id_2"):
+            valor = getattr(datos, campo, None)
+            if valor:
+                _reservar_unidad(valor, "esperando_iniciar_viaje")
+                unidades_reservadas.append(str(valor))
+    except Exception:
+        supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
+        for unidad_id in unidades_reservadas:
+            _liberar_unidad(unidad_id, excepto=None)
+        raise
 
     nuevo_viaje = datos.model_dump(mode="json", exclude_unset=True)
     upper_fields(nuevo_viaje, "origen", "destino", "cliente", "carga")
@@ -122,6 +205,8 @@ def crear_viaje(datos: ViajeCreate, asignado_por: UUID) -> dict:
 
     if not resultado.data:
         supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
+        for unidad_id in unidades_reservadas:
+            _liberar_unidad(unidad_id, excepto=None)
         raise InternalError("No se pudo crear el viaje")
 
     viaje_creado = resultado.data[0]
@@ -151,8 +236,19 @@ def editar_viaje(viaje_id: str, datos: ViajeEditar, usuario_id: UUID) -> dict:
     if not cambios:
         raise BadRequestError("No se enviaron campos para actualizar")
 
+    nuevo_camion_id_2 = cambios.get("camion_id_2")
+    viejo_camion_id_2 = viaje.get("camion_id_2")
+    reservo_nueva = False
+    if "camion_id_2" in cambios and nuevo_camion_id_2:
+        estado_nuevo = "viajando" if viaje["estado"] == "en_curso" else "esperando_iniciar_viaje"
+        _reservar_unidad(nuevo_camion_id_2, estado_nuevo)
+        reservo_nueva = True
+
     resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
     viaje_editado = resultado.data[0]
+
+    if reservo_nueva and str(nuevo_camion_id_2) != str(viejo_camion_id_2):
+        _liberar_unidad(viejo_camion_id_2, excepto=viaje_id)
 
     registrar_evento(
         usuario_id=usuario_id,
@@ -193,7 +289,7 @@ def reanudar_viaje(viaje_id: str, datos: ViajeReanudar, usuario_id: UUID) -> dic
     if nuevo_chofer_id != viaje["chofer_id"]:
         reserva = (
             supabase.table("choferes")
-            .update({"estado": "viajando"})
+            .update({"estado": "esperando_iniciar_viaje"})
             .eq("id", nuevo_chofer_id)
             .eq("estado", "disponible")
             .execute()
@@ -202,9 +298,29 @@ def reanudar_viaje(viaje_id: str, datos: ViajeReanudar, usuario_id: UUID) -> dic
             raise ConflictError("El chofer seleccionado no está disponible")
         cambios["chofer_id"] = nuevo_chofer_id
     else:
-        supabase.table("choferes").update({"estado": "viajando"}).eq("id", viaje["chofer_id"]).execute()
+        supabase.table("choferes").update({"estado": "esperando_iniciar_viaje"}).eq("id", viaje["chofer_id"]).execute()
+
+    unidades_nuevas = []
+    try:
+        for campo in ("camion_id", "camion_id_2"):
+            valor = cambios.get(campo)
+            if valor:
+                _reservar_unidad(valor, "esperando_iniciar_viaje")
+                unidades_nuevas.append(str(valor))
+    except Exception:
+        if nuevo_chofer_id != viaje["chofer_id"]:
+            supabase.table("choferes").update({"estado": "disponible"}).eq("id", nuevo_chofer_id).execute()
+        else:
+            supabase.table("choferes").update({"estado": "disponible"}).eq("id", viaje["chofer_id"]).execute()
+        for unidad_id in unidades_nuevas:
+            _liberar_unidad(unidad_id, excepto=None)
+        raise
 
     resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
+
+    for campo in ("camion_id", "camion_id_2"):
+        if campo in cambios and cambios[campo] != viaje.get(campo):
+            _liberar_unidad(viaje.get(campo), excepto=viaje_id)
 
     registrar_evento(
         usuario_id=usuario_id,
@@ -230,8 +346,10 @@ def cancelar_viaje(viaje_id: str, datos: ViajeCancelar, usuario_id: UUID) -> dic
         .execute()
     )
 
-    # El chofer vuelve a estar disponible
+    # El chofer y las unidades vuelven a estar disponibles
     supabase.table("choferes").update({"estado": "disponible"}).eq("id", viaje["chofer_id"]).execute()
+    _liberar_unidad(viaje.get("camion_id"), excepto=viaje_id)
+    _liberar_unidad(viaje.get("camion_id_2"), excepto=viaje_id)
 
     registrar_evento(
         usuario_id=usuario_id,
@@ -251,6 +369,18 @@ def iniciar_viaje(viaje_id: str, usuario_id: UUID) -> dict:
         raise BadRequestError("Solo se pueden iniciar viajes pendientes")
 
     resultado = supabase.table("viajes").update({"estado": "en_curso"}).eq("id", viaje_id).execute()
+
+    supabase.table("choferes").update({"estado": "viajando"}).eq("id", viaje["chofer_id"]).execute()
+
+    for campo in ("camion_id", "camion_id_2"):
+        unidad_id = viaje.get(campo)
+        if not unidad_id:
+            continue
+        tabla = _tabla_unidad(str(unidad_id))
+        if tabla:
+            supabase.table(tabla).update({"estado": "viajando"}).eq("id", str(unidad_id)).in_(
+                "estado", ["disponible", "esperando_iniciar_viaje"]
+            ).execute()
 
     registrar_evento(
         usuario_id=usuario_id,
@@ -277,13 +407,34 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
     if viaje_original["chofer_id"] != chofer_id_str:
         reserva = (
             supabase.table("choferes")
-            .update({"estado": "viajando"})
+            .update({"estado": "esperando_iniciar_viaje"})
             .eq("id", chofer_id_str)
             .eq("estado", "disponible")
             .execute()
         )
         if not reserva.data:
             raise ConflictError("El chofer de la vuelta no está disponible")
+
+    unidades_reservadas = []
+    try:
+        for campo in ("camion_id", "camion_id_2"):
+            valor = getattr(datos, campo, None)
+            if not valor:
+                continue
+            valor_str = str(valor)
+            if viaje_original["estado"] != "finalizado" and valor_str in (
+                str(viaje_original.get("camion_id")),
+                str(viaje_original.get("camion_id_2")),
+            ):
+                continue
+            _reservar_unidad(valor_str, "esperando_iniciar_viaje")
+            unidades_reservadas.append(valor_str)
+    except Exception:
+        if viaje_original["chofer_id"] != chofer_id_str:
+            supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
+        for unidad_id in unidades_reservadas:
+            _liberar_unidad(unidad_id, excepto=None)
+        raise
 
     nuevo_viaje = datos.model_dump(mode="json", exclude_unset=True)
     upper_fields(nuevo_viaje, "origen", "destino", "cliente", "carga")
@@ -298,6 +449,8 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
     if not resultado.data:
         if viaje_original["chofer_id"] != chofer_id_str:
             supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
+        for unidad_id in unidades_reservadas:
+            _liberar_unidad(unidad_id, excepto=None)
         raise InternalError("No se pudo crear el viaje de vuelta")
 
     viaje_vuelta_id = resultado.data[0]["id"]
@@ -376,6 +529,8 @@ def finalizar_viaje(viaje_id: str, datos: ViajeFinalizar, usuario_id: UUID) -> d
     resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
 
     supabase.table("choferes").update({"estado": "disponible"}).eq("id", viaje["chofer_id"]).execute()
+    _liberar_unidad(viaje.get("camion_id"), excepto=viaje_id)
+    _liberar_unidad(viaje.get("camion_id_2"), excepto=viaje_id)
 
     detalle = f"Viaje finalizado, {datos.kms_recorridos} kms cargados"
     if datos.kms_descargado:

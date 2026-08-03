@@ -22,6 +22,8 @@ class CamionOut(BaseModel):
     tipo: Optional[str] = None
     empresa_id: Optional[UUID] = None
     activo: bool
+    estado: str = "disponible"
+    motivo_no_disponible: Optional[str] = None
     creado_en: datetime
 
 
@@ -31,3 +33,8 @@ class CamionUpdate(BaseModel):
     anio: Optional[int] = None
     tipo: Optional[str] = None
     empresa_id: Optional[UUID] = None
+
+
+class CamionCambiarEstado(BaseModel):
+    estado: str = Field(..., pattern="^(disponible|no_disponible)$")
+    motivo_no_disponible: Optional[str] = None

@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends
-from app.models.acoplado import AcopladoCreate, AcopladoOut, AcopladoUpdate
+from app.models.acoplado import AcopladoCreate, AcopladoOut, AcopladoUpdate, AcopladoCambiarEstado
 from app.models.usuario import UsuarioOut
 from app.services.acoplado_service import (
     crear_acoplado,
     listar_acoplados,
     obtener_acoplado,
     actualizar_acoplado,
+    cambiar_estado_acoplado,
     dar_de_baja_acoplado,
 )
 from app.dependencies import require_rol
@@ -40,6 +41,15 @@ def obtener_acoplado_por_id(
 
 ):
     return obtener_acoplado(acoplado_id)
+
+@router.patch("/{acoplado_id}/estado", response_model=AcopladoOut)
+def cambiar_estado(
+    acoplado_id: str,
+    datos: AcopladoCambiarEstado,
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado")),
+):
+    return cambiar_estado_acoplado(acoplado_id, datos, usuario_id=usuario_actual.id)
+
 
 @router.patch("/{acoplado_id}", response_model=AcopladoOut)
 def editar_acoplado(

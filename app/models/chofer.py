@@ -21,6 +21,7 @@ class ChoferOut(BaseModel):
     camion_id: Optional[UUID] = None
     empresa_id: Optional[UUID] = None
     activo: bool
+    motivo_no_disponible: Optional[str] = None
     creado_en: datetime
     creado_por: Optional[UUID] = None
 
@@ -34,7 +35,8 @@ class ChoferUpdate(BaseModel):
 
 
 class ChoferCambiarEstado(BaseModel):
-    estado: str = Field(..., pattern="^(disponible|viajando|inactivo|licencia)$")
+    estado: str = Field(..., pattern="^(disponible|no_disponible|viajando|inactivo|licencia)$")
+    motivo_no_disponible: Optional[str] = None
 
 
 class KmsPorMes(BaseModel):
