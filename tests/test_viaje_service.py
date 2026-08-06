@@ -33,9 +33,9 @@ def test_listar_viajes_vuelta_n_plus_one(query, table):
     assert result["items"][0]["id"] == "ida-1"
     assert result["items"][0]["viaje_vuelta"]["id"] == "vuelta-1"
 
-    table.assert_called_with("viajes")
-    query.in_.assert_called_once_with("id", ["vuelta-1"])
-    assert query.execute.call_count == 2
+    assert "viajes" in [call.args[0] for call in table.call_args_list]
+    assert ("id", ["vuelta-1"]) in [call.args for call in query.in_.call_args_list]
+    assert query.execute.call_count == 3
 
 
 def test_listar_viajes_sin_vueltas(query, table):
@@ -48,4 +48,4 @@ def test_listar_viajes_sin_vueltas(query, table):
     result = listar_viajes()
 
     assert len(result["items"]) == 2
-    query.in_.assert_not_called()
+    assert all(call.args[0] == "viaje_id" for call in query.in_.call_args_list)

@@ -10,7 +10,7 @@ class CargaCombustibleCreate(BaseModel):
     litros: float = Field(..., gt=0)
     monto: float = Field(..., gt=0)
     fecha: Optional[date] = None
-    kms_al_momento: Optional[float] = None
+    km_por_litro: Optional[float] = None
 
 
 class CargaCombustibleOut(BaseModel):
@@ -20,6 +20,6 @@ class CargaCombustibleOut(BaseModel):
     litros: float
     monto: float
     fecha: date
-    kms_al_momento: Optional[float] = None
+    km_por_litro: Optional[float] = None
     registrado_por: Optional[UUID] = None
     creado_en: datetime

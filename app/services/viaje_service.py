@@ -74,6 +74,45 @@ def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, p
                 viaje["viaje_vuelta"] = vueltas_map[vid]
 
     result["items"] = [v for v in result["items"] if v["id"] not in ids_vueltas]
+
+    ids_a_enriquecer = set(v["id"] for v in result["items"])
+    for v in result["items"]:
+        vu = v.get("viaje_vuelta")
+        if vu:
+            ids_a_enriquecer.add(vu["id"])
+
+    por_viaje = {}
+    if ids_a_enriquecer:
+        cargas = (
+            supabase.table("cargas_combustible")
+            .select("viaje_id, litros, km_por_litro")
+            .in_("viaje_id", list(ids_a_enriquecer))
+            .execute()
+        )
+        for c in cargas.data:
+            vid = c.get("viaje_id")
+            if not vid:
+                continue
+            if vid not in por_viaje:
+                por_viaje[vid] = {"litros": 0.0, "km_por_litro": None}
+            por_viaje[vid]["litros"] += c.get("litros") or 0
+            if c.get("km_por_litro"):
+                por_viaje[vid]["km_por_litro"] = c["km_por_litro"]
+
+    def _enriquecer(viaje: dict) -> None:
+        viaje["litros_combustible"] = None
+        viaje["km_por_litro"] = None
+        cant = por_viaje.get(viaje["id"])
+        if cant and cant["litros"]:
+            viaje["litros_combustible"] = cant["litros"]
+            viaje["km_por_litro"] = cant["km_por_litro"]
+
+    for v in result["items"]:
+        _enriquecer(v)
+        vu = v.get("viaje_vuelta")
+        if vu:
+            _enriquecer(vu)
+
     return result
 
 
@@ -516,21 +555,31 @@ def finalizar_viaje(viaje_id: str, datos: ViajeFinalizar, usuario_id: UUID) -> d
 
     total_kms = datos.kms_recorridos + (datos.kms_descargado or 0)
 
-    km_por_litro = None
-    if datos.litros_combustible and datos.litros_combustible > 0:
-        km_por_litro = round(total_kms / datos.litros_combustible, 2)
-
     cambios = {
         "estado": "finalizado",
         "fecha_fin": datos.fecha_fin.isoformat(),
         "kms_recorridos": total_kms,
         "kms_descargado": datos.kms_descargado,
-        "litros_combustible": datos.litros_combustible,
-        "km_por_litro": km_por_litro,
         "solo_ida": datos.solo_ida,
     }
 
     resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
+
+    km_por_litro = None
+    if datos.litros_combustible and datos.litros_combustible > 0:
+        km_por_litro = round(total_kms / datos.litros_combustible, 2)
+        camion_id = viaje.get("camion_id") or viaje.get("camion_id_2")
+        if camion_id:
+            carga = {
+                "camion_id": str(camion_id),
+                "viaje_id": str(viaje_id),
+                "litros": datos.litros_combustible,
+                "monto": 0,
+                "fecha": datos.fecha_fin.date().isoformat(),
+                "km_por_litro": km_por_litro,
+                "registrado_por": str(usuario_id),
+            }
+            supabase.table("cargas_combustible").insert(carga).execute()
 
     supabase.table("choferes").update({"estado": "disponible"}).eq("id", viaje["chofer_id"]).execute()
     _liberar_unidad(viaje.get("camion_id"), excepto=viaje_id)
