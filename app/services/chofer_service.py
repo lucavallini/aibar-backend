@@ -8,7 +8,7 @@ from app.database import supabase, armar_respuesta_paginada
 from app.services.auditoria_service import registrar_evento
 from app.utils.fields import upper_fields
 
-def listar_choferes(activos_only: bool = True, busqueda: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
+def listar_choferes(activos_only: bool = True, busqueda: str = None, pagina: int = 1, tamano_pagina: int = 20, incluir_kms_mes: bool = False) -> dict:
     query = supabase.table("choferes").select("*", count="exact")
 
     if activos_only:
@@ -19,7 +19,37 @@ def listar_choferes(activos_only: bool = True, busqueda: str = None, pagina: int
 
     query = query.order("nombre_completo")
 
-    return armar_respuesta_paginada(query, pagina, tamano_pagina)
+    resultado = armar_respuesta_paginada(query, pagina, tamano_pagina)
+
+    if incluir_kms_mes:
+        _adjuntar_kms_mes_actual(resultado)
+
+    return resultado
+
+def _adjuntar_kms_mes_actual(resultado: dict) -> None:
+    items = resultado.get("items", [])
+    ids = [chofer["id"] for chofer in items]
+    if not ids:
+        return
+
+    primer_dia_mes = date.today().replace(day=1).isoformat()
+    viajes = (
+        supabase.table("viajes")
+        .select("chofer_id, kms_recorridos")
+        .eq("estado", "finalizado")
+        .gte("fecha_inicio", primer_dia_mes)
+        .in_("chofer_id", ids)
+        .execute()
+    )
+
+    kms_por_chofer: dict[str, float] = {}
+    for viaje in viajes.data:
+        chofer_id = viaje.get("chofer_id")
+        kms = viaje.get("kms_recorridos") or 0
+        kms_por_chofer[chofer_id] = kms_por_chofer.get(chofer_id, 0) + kms
+
+    for chofer in items:
+        chofer["kms_mes_actual"] = kms_por_chofer.get(chofer["id"], 0)
 
 def crear_chofer(datos: ChoferCreate, creado_por: UUID) -> dict:
     nuevo_chofer = datos.model_dump(mode="json")

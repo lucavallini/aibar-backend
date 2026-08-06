@@ -24,6 +24,7 @@ class ChoferOut(BaseModel):
     motivo_no_disponible: Optional[str] = None
     creado_en: datetime
     creado_por: Optional[UUID] = None
+    kms_mes_actual: Optional[float] = None
 
 
 class ChoferUpdate(BaseModel):

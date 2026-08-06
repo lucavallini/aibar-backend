@@ -24,9 +24,10 @@ def obtener_choferes(
     busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
+    incluir_kms_mes: bool = False,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
-    return listar_choferes(activos_only, busqueda, pagina, tamano_pagina)
+    return listar_choferes(activos_only, busqueda, pagina, tamano_pagina, incluir_kms_mes)
 
 
 @router.post("/", response_model=ChoferOut, status_code=201)
