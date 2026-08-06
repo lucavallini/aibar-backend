@@ -516,24 +516,18 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
 def calcular_rendimiento_combustible(chofer_id: str) -> dict:
     viajes = (
         supabase.table("viajes")
-        .select("id, kms_recorridos")
+        .select("id, kms_recorridos, cargas_combustible(litros)")
         .eq("chofer_id", chofer_id)
         .eq("estado", "finalizado")
         .execute()
     )
 
     total_kms = sum(v["kms_recorridos"] or 0 for v in viajes.data)
-    viaje_ids = [v["id"] for v in viajes.data]
-
-    total_litros = 0
-    if viaje_ids:
-        cargas = (
-            supabase.table("cargas_combustible")
-            .select("litros")
-            .in_("viaje_id", viaje_ids)
-            .execute()
-        )
-        total_litros = sum(c["litros"] or 0 for c in cargas.data)
+    total_litros = sum(
+        c["litros"] or 0
+        for v in viajes.data
+        for c in (v.get("cargas_combustible") or [])
+    )
 
     rendimiento = round(total_kms / total_litros, 2) if total_litros > 0 else None
     litros_cien = round(total_litros / total_kms * 100, 2) if total_kms > 0 else None

@@ -166,10 +166,36 @@ def calcular_kms_mes_actual(chofer_id: str) -> float:
     return total
 
 
+def _viajes_finalizados(chofer_id: str) -> list:
+    resultado = (
+        supabase.table("viajes")
+        .select("kms_recorridos, fecha_inicio")
+        .eq("chofer_id", chofer_id)
+        .eq("estado", "finalizado")
+        .execute()
+    )
+    return resultado.data
+
+
 def obtener_detalle_chofer(chofer_id: str) -> dict:
     chofer = obtener_chofer(chofer_id)
-    kms_mes = calcular_kms_mes_actual(chofer_id)
-    historico = calcular_kms_historico(chofer_id)
+    viajes = _viajes_finalizados(chofer_id)
+
+    hoy = date.today()
+    primer_dia_mes = hoy.replace(day=1).isoformat()
+    kms_mes = sum(
+        v["kms_recorridos"] or 0
+        for v in viajes
+        if (v["fecha_inicio"] or "") >= primer_dia_mes
+    )
+
+    acumulado = {}
+    for viaje in viajes:
+        fecha = viaje["fecha_inicio"][:7]  # "2026-07-22..." -> "2026-07"
+        acumulado[fecha] = acumulado.get(fecha, 0) + (viaje["kms_recorridos"] or 0)
+
+    historico = [{"mes": mes, "kms": kms} for mes, kms in sorted(acumulado.items(), reverse=True)]
+
     return {
         **chofer,
         "kms_mes_actual": kms_mes,
