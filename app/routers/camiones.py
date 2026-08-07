@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from app.models.camion import CamionCreate, CamionOut, CamionUpdate, CamionCambiarEstado
+from app.models.camion import CamionCreate, CamionOut, CamionUpdate, CamionCambiarEstado, AsignacionCamion
 from app.models.usuario import UsuarioOut
 from app.services.camion_service import (
     crear_camion,
@@ -8,6 +8,7 @@ from app.services.camion_service import (
     actualizar_camion,
     cambiar_estado_camion,
     dar_de_baja_camion,
+    asignar_unidades,
 )
 from app.dependencies import require_rol
 from app.models.common import RespuestaPaginada
@@ -22,9 +23,12 @@ def obtener_camiones(
     busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
+    empresa_id: str = None,
+    chofer_id: str = None,
+    acoplado_id: str = None,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
-    return listar_camiones(activos_only, busqueda, pagina, tamano_pagina)
+    return listar_camiones(activos_only, busqueda, pagina, tamano_pagina, empresa_id, chofer_id, acoplado_id)
 
 @router.post("/", response_model=CamionOut, status_code=201)
 def alta_camion(
@@ -58,6 +62,15 @@ def editar_camion(
     usuario_actual: UsuarioOut = Depends(require_rol("administrador"))
 ):
     return actualizar_camion(camion_id, datos, usuario_id=usuario_actual.id)
+
+
+@router.patch("/{camion_id}/asignacion", response_model=CamionOut)
+def asignar_camion(
+    camion_id: str,
+    datos: AsignacionCamion,
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
+):
+    return asignar_unidades(camion_id, datos, usuario_id=usuario_actual.id)
 
 
 @router.delete("/{camion_id}", response_model=CamionOut)

@@ -585,7 +585,8 @@ def finalizar_viaje(viaje_id: str, datos: ViajeFinalizar, usuario_id: UUID) -> d
     if datos.litros_combustible:
         detalle += f", {datos.litros_combustible} L"
     if km_por_litro:
-        detalle += f", {km_por_litro} km/l"
+        litros_cien = round(100 / km_por_litro, 2)
+        detalle += f", {litros_cien} L/100km"
 
     registrar_evento(
         usuario_id=usuario_id,

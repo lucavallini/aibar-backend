@@ -21,6 +21,7 @@ class CamionOut(BaseModel):
     anio: Optional[int] = None
     tipo: Optional[str] = None
     empresa_id: Optional[UUID] = None
+    acoplado_id: Optional[UUID] = None
     activo: bool
     estado: str = "disponible"
     motivo_no_disponible: Optional[str] = None
@@ -33,6 +34,11 @@ class CamionUpdate(BaseModel):
     anio: Optional[int] = None
     tipo: Optional[str] = None
     empresa_id: Optional[UUID] = None
+
+
+class AsignacionCamion(BaseModel):
+    chofer_id: Optional[UUID] = None
+    acoplado_id: Optional[UUID] = None
 
 
 class CamionCambiarEstado(BaseModel):

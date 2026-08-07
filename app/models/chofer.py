@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 
 
@@ -10,6 +10,8 @@ class ChoferCreate(BaseModel):
     telefono: Optional[str] = None
     camion_id: Optional[UUID] = None
     empresa_id: Optional[UUID] = None
+    carnet_vencimiento: Optional[date] = None
+    carga_peligrosa_vencimiento: Optional[date] = None
 
 
 class ChoferOut(BaseModel):
@@ -25,6 +27,8 @@ class ChoferOut(BaseModel):
     creado_en: datetime
     creado_por: Optional[UUID] = None
     kms_mes_actual: Optional[float] = None
+    carnet_vencimiento: Optional[date] = None
+    carga_peligrosa_vencimiento: Optional[date] = None
 
 
 class ChoferUpdate(BaseModel):
@@ -33,6 +37,8 @@ class ChoferUpdate(BaseModel):
     telefono: Optional[str] = None
     camion_id: Optional[UUID] = None
     empresa_id: Optional[UUID] = None
+    carnet_vencimiento: Optional[date] = None
+    carga_peligrosa_vencimiento: Optional[date] = None
 
 
 class ChoferCambiarEstado(BaseModel):

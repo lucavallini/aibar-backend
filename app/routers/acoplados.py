@@ -21,10 +21,11 @@ def obtener_acoplados(
     busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
+    empresa_id: str = None,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar")),
 
 ):
-    return listar_acoplados(activos_only, busqueda, pagina, tamano_pagina)
+    return listar_acoplados(activos_only, busqueda, pagina, tamano_pagina, empresa_id)
 
 @router.post("/", response_model=AcopladoOut, status_code=201)
 def alta_acoplado(

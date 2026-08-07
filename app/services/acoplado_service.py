@@ -6,11 +6,14 @@ from uuid import UUID
 from app.utils.fields import upper_fields
 
 
-def listar_acoplados(activos_only: bool = True, busqueda: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
+def listar_acoplados(activos_only: bool = True, busqueda: str = None, pagina: int = 1, tamano_pagina: int = 20, empresa_id: str = None) -> dict:
     query = supabase.table("acoplados").select("*", count="exact")
 
     if activos_only:
         query = query.eq("activo", True)
+
+    if empresa_id:
+        query = query.eq("empresa_id", empresa_id)
 
     if busqueda:
         query = query.ilike("patente", f"%{busqueda}%")
