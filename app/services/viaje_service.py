@@ -1,10 +1,10 @@
-from app.database import supabase
-from app.models.viaje import ViajeCreate, ViajeEditar, ViajeCancelar, ViajeFinalizar, ViajeOut, ViajeReanudar
+from app.database import supabase, armar_respuesta_paginada
+from app.models.viaje import ViajeCreate, ViajeEditar, ViajeCancelar, ViajeFinalizar, ViajeReanudar
 from app.services.auditoria_service import registrar_evento
 from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, InternalError
+from app.core.logging import logger
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
-from app.database import supabase, armar_respuesta_paginada
 from app.utils.fields import upper_fields
 
 def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, patente: str = None, fecha_desde: str = None, fecha_hasta: str = None, empresa_id: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
@@ -227,6 +227,7 @@ def crear_viaje(datos: ViajeCreate, asignado_por: UUID) -> dict:
                 _reservar_unidad(valor, "esperando_iniciar_viaje")
                 unidades_reservadas.append(str(valor))
     except Exception:
+        logger.error("Fallo al reservar unidades para nuevo viaje, revirtiendo reservas", exc_info=True)
         supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
         for unidad_id in unidades_reservadas:
             _liberar_unidad(unidad_id, excepto=None)
@@ -347,6 +348,7 @@ def reanudar_viaje(viaje_id: str, datos: ViajeReanudar, usuario_id: UUID) -> dic
                 _reservar_unidad(valor, "esperando_iniciar_viaje")
                 unidades_nuevas.append(str(valor))
     except Exception:
+        logger.error("Fallo al reservar unidades al reanudar viaje %s, revirtiendo reservas", viaje_id, exc_info=True)
         if nuevo_chofer_id != viaje["chofer_id"]:
             supabase.table("choferes").update({"estado": "disponible"}).eq("id", nuevo_chofer_id).execute()
         else:
@@ -472,6 +474,7 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
             _reservar_unidad(valor_str, "esperando_iniciar_viaje")
             unidades_reservadas.append(valor_str)
     except Exception:
+        logger.error("Fallo al reservar unidades para vuelta del viaje %s, revirtiendo reservas", viaje_id, exc_info=True)
         if viaje_original["chofer_id"] != chofer_id_str:
             supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
         for unidad_id in unidades_reservadas:

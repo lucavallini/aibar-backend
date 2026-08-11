@@ -1,3 +1,5 @@
+from typing import Optional
+from uuid import UUID
 from fastapi import APIRouter, Depends
 from app.models.viaje import ViajeCreate, ViajeOut, ViajeEditar, ViajeCancelar, ViajeFinalizar, ViajeReanudar
 from app.models.usuario import UsuarioOut
@@ -21,18 +23,28 @@ router = APIRouter(prefix="/viajes", tags=["viajes"])
 
 @router.get("/", response_model=RespuestaPaginada[ViajeOut])
 def obtener_viajes(
-    chofer_id: str = None,
+    chofer_id: Optional[UUID] = None,
     estado: str = None,
     dias: int = None,
     patente: str = None,
     fecha_desde: str = None,
     fecha_hasta: str = None,
-    empresa_id: str = None,
+    empresa_id: Optional[UUID] = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
-    return listar_viajes(chofer_id, estado, dias, patente, fecha_desde, fecha_hasta, empresa_id, pagina, tamano_pagina)
+    return listar_viajes(
+        str(chofer_id) if chofer_id else None,
+        estado,
+        dias,
+        patente,
+        fecha_desde,
+        fecha_hasta,
+        str(empresa_id) if empresa_id else None,
+        pagina,
+        tamano_pagina,
+    )
 
 
 @router.post("/", response_model=ViajeOut, status_code=201)
@@ -45,60 +57,60 @@ def alta_viaje(
 
 @router.patch("/{viaje_id}", response_model=ViajeOut)
 def editar_viaje_endpoint(
-    viaje_id: str,
+    viaje_id: UUID,
     datos: ViajeEditar,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return editar_viaje(viaje_id, datos, usuario_id=usuario_actual.id)
+    return editar_viaje(str(viaje_id), datos, usuario_id=usuario_actual.id)
 
 
 @router.post("/{viaje_id}/cancelar", response_model=ViajeOut)
 def cancelar_viaje_endpoint(
-    viaje_id: str,
+    viaje_id: UUID,
     datos: ViajeCancelar,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return cancelar_viaje(viaje_id, datos, usuario_id=usuario_actual.id)
+    return cancelar_viaje(str(viaje_id), datos, usuario_id=usuario_actual.id)
 
 
 @router.post("/{viaje_id}/reanudar", response_model=ViajeOut)
 def reanudar_viaje_endpoint(
-    viaje_id: str,
+    viaje_id: UUID,
     datos: ViajeReanudar,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return reanudar_viaje(viaje_id, datos, usuario_id=usuario_actual.id)
+    return reanudar_viaje(str(viaje_id), datos, usuario_id=usuario_actual.id)
 
 
 @router.post("/{viaje_id}/iniciar", response_model=ViajeOut)
 def iniciar_viaje_endpoint(
-    viaje_id: str,
+    viaje_id: UUID,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return iniciar_viaje(viaje_id, usuario_id=usuario_actual.id)
+    return iniciar_viaje(str(viaje_id), usuario_id=usuario_actual.id)
 
 
 @router.post("/{viaje_id}/finalizar", response_model=ViajeOut)
 def finalizar_viaje_endpoint(
-    viaje_id: str,
+    viaje_id: UUID,
     datos: ViajeFinalizar,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return finalizar_viaje(viaje_id, datos, usuario_id=usuario_actual.id)
+    return finalizar_viaje(str(viaje_id), datos, usuario_id=usuario_actual.id)
 
 
 @router.post("/{viaje_id}/vuelta", response_model=ViajeOut, status_code=201)
 def agregar_vuelta_endpoint(
-    viaje_id: str,
+    viaje_id: UUID,
     datos: ViajeCreate,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado"))
 ):
-    return agregar_vuelta(viaje_id, datos, asignado_por=usuario_actual.id)
+    return agregar_vuelta(str(viaje_id), datos, asignado_por=usuario_actual.id)
 
 
 @router.get("/rendimiento-combustible/{chofer_id}")
 def obtener_rendimiento_combustible(
-    chofer_id: str,
+    chofer_id: UUID,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
-    return calcular_rendimiento_combustible(chofer_id)
+    return calcular_rendimiento_combustible(str(chofer_id))

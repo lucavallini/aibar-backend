@@ -1,9 +1,9 @@
+from uuid import UUID
 from fastapi import APIRouter, Depends
-from app.models.usuario import UsuarioCreate, UsuarioOut
+from app.models.usuario import UsuarioCreate, UsuarioOut, UsuarioUpdate
 from app.services.usuario_service import actualizar_usuario, crear_usuario, dar_de_baja_usuario, listar_usuarios
 from app.dependencies import require_rol
 from app.models.common import RespuestaPaginada
-from app.models.usuario import UsuarioCreate, UsuarioOut, UsuarioUpdate
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
@@ -24,16 +24,16 @@ def obtener_usuarios(
 
 @router.patch("/{usuario_id}", response_model=UsuarioOut)
 def editar_usuario(
-    usuario_id: str,
+    usuario_id: UUID,
     datos: UsuarioUpdate,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador"))
 ):
-    return actualizar_usuario(usuario_id, datos, editado_por=usuario_actual.id)
+    return actualizar_usuario(str(usuario_id), datos, editado_por=usuario_actual.id)
 
 
 @router.delete("/{usuario_id}", response_model=UsuarioOut)
 def baja_usuario(
-    usuario_id: str,
+    usuario_id: UUID,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador"))
 ):
-    return dar_de_baja_usuario(usuario_id, dado_de_baja_por=usuario_actual.id)
+    return dar_de_baja_usuario(str(usuario_id), dado_de_baja_por=usuario_actual.id)

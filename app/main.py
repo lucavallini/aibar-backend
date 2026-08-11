@@ -2,7 +2,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.routers import usuarios, auth, camiones, choferes, auditoria, viajes, multas, combustible, empresas, acoplados, observaciones
-from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, ForbiddenError, UnauthorizedError, InternalError
+from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, ForbiddenError, UnauthorizedError, InternalError, TooManyRequestsError
+from app.core.logging import configurar_logging, logger
+
+configurar_logging()
 
 app = FastAPI(title="AIBAR SRL - API")
 
@@ -26,17 +29,27 @@ async def forbidden_handler(request: Request, exc: ForbiddenError):
 async def unauthorized_handler(request: Request, exc: UnauthorizedError):
     return JSONResponse(status_code=401, content={"detail": exc.detail})
 
+@app.exception_handler(TooManyRequestsError)
+async def too_many_requests_handler(request: Request, exc: TooManyRequestsError):
+    return JSONResponse(status_code=429, content={"detail": exc.detail})
+
 @app.exception_handler(InternalError)
 async def internal_handler(request: Request, exc: InternalError):
+    logger.error("Error interno en %s %s: %s", request.method, request.url.path, exc.detail, exc_info=exc)
     return JSONResponse(status_code=500, content={"detail": exc.detail})
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error("Excepción no controlada en %s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:4200",
                    "https://aibarsrl.netlify.app"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(usuarios.router)

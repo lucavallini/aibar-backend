@@ -1,12 +1,11 @@
 import re
 import unicodedata
-from app.database import supabase
+from app.database import supabase, armar_respuesta_paginada
 from app.models.usuario import UsuarioCreate, UsuarioUpdate
 from app.core.security import hash_password
 from app.core.exceptions import NotFoundError, BadRequestError, InternalError
 from app.services.auditoria_service import registrar_evento
 from uuid import UUID
-from app.database import supabase, armar_respuesta_paginada
 
 
 def _normalizar(texto: str) -> str:

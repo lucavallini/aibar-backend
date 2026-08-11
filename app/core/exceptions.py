@@ -26,3 +26,7 @@ class UnauthorizedError(AppError):
 
 class InternalError(AppError):
     pass
+
+
+class TooManyRequestsError(AppError):
+    pass

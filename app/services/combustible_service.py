@@ -1,9 +1,7 @@
-from app.database import supabase
+from app.database import supabase, armar_respuesta_paginada
 from app.models.combustible import CargaCombustibleCreate
 from app.core.exceptions import NotFoundError, InternalError
 from uuid import UUID
-from app.database import supabase, armar_respuesta_paginada
-
 from datetime import date, timedelta
 from app.services.auditoria_service import registrar_evento
 

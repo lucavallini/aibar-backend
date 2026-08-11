@@ -1,3 +1,5 @@
+from typing import Optional
+from uuid import UUID
 from fastapi import APIRouter, Depends
 from app.models.acoplado import AcopladoCreate, AcopladoOut, AcopladoUpdate, AcopladoCambiarEstado
 from app.models.usuario import UsuarioOut
@@ -21,11 +23,11 @@ def obtener_acoplados(
     busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
-    empresa_id: str = None,
+    empresa_id: Optional[UUID] = None,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar")),
 
 ):
-    return listar_acoplados(activos_only, busqueda, pagina, tamano_pagina, empresa_id)
+    return listar_acoplados(activos_only, busqueda, pagina, tamano_pagina, str(empresa_id) if empresa_id else None)
 
 @router.post("/", response_model=AcopladoOut, status_code=201)
 def alta_acoplado(
@@ -37,33 +39,33 @@ def alta_acoplado(
 
 @router.get("/{acoplado_id}", response_model=AcopladoOut)
 def obtener_acoplado_por_id(
-    acoplado_id: str,
+    acoplado_id: UUID,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar")),
 
 ):
-    return obtener_acoplado(acoplado_id)
+    return obtener_acoplado(str(acoplado_id))
 
 @router.patch("/{acoplado_id}/estado", response_model=AcopladoOut)
 def cambiar_estado(
-    acoplado_id: str,
+    acoplado_id: UUID,
     datos: AcopladoCambiarEstado,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado")),
 ):
-    return cambiar_estado_acoplado(acoplado_id, datos, usuario_id=usuario_actual.id)
+    return cambiar_estado_acoplado(str(acoplado_id), datos, usuario_id=usuario_actual.id)
 
 
 @router.patch("/{acoplado_id}", response_model=AcopladoOut)
 def editar_acoplado(
-    acoplado_id: str,
+    acoplado_id: UUID,
     datos: AcopladoUpdate,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador")),
 ):
-    return actualizar_acoplado(acoplado_id, datos, usuario_id=usuario_actual.id)
+    return actualizar_acoplado(str(acoplado_id), datos, usuario_id=usuario_actual.id)
 
 
 @router.delete("/{acoplado_id}", response_model=AcopladoOut)
 def baja_acoplado(
-    acoplado_id: str,
+    acoplado_id: UUID,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador")),
 ):
-    return dar_de_baja_acoplado(acoplado_id, usuario_id=usuario_actual.id)
+    return dar_de_baja_acoplado(str(acoplado_id), usuario_id=usuario_actual.id)

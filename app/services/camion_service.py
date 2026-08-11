@@ -1,6 +1,5 @@
-from app.database import supabase
-from app.models.camion import CamionCreate, CamionUpdate, CamionCambiarEstado, AsignacionCamion
 from app.database import supabase, armar_respuesta_paginada
+from app.models.camion import CamionCreate, CamionUpdate, CamionCambiarEstado, AsignacionCamion
 from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, InternalError
 from app.services.auditoria_service import registrar_evento
 from uuid import UUID
