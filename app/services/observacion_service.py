@@ -18,6 +18,18 @@ def listar_observaciones(chofer_id: str) -> list:
     return resultado.data
 
 
+def listar_observaciones_mes_actual() -> list:
+    hoy = date.today()
+    resultado = (
+        supabase.table("observaciones")
+        .select("*")
+        .eq("mes", hoy.month)
+        .eq("anio", hoy.year)
+        .execute()
+    )
+    return resultado.data
+
+
 def guardar_observacion(chofer_id: str, datos: ObservacionCreate, usuario_id: UUID) -> dict:
     hoy = date.today()
     mes = hoy.month
