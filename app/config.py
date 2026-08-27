@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     jwt_algorithm:str ='HS256'
     jwt_expire_minutes:int = 480
 
+    gc_base_url: str = "https://apigc.tcsa.com.ar"
+    gc_client_id: str = ""
+    gc_client_secret: str = ""
+
     class Config:
         env_file = ".env"
 

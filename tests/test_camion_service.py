@@ -4,8 +4,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.core.exceptions import ConflictError
-from app.models.camion import CamionCambiarEstado
+from app.models.camion import CamionCambiarEstado, CamionCreate
 from app.services.camion_service import cambiar_estado_camion
+from app.models.acoplado import AcopladoCreate, AcopladoUpdate
 
 
 def test_cambiar_estado_camion_conflicto_si_en_uso(query, table):
@@ -48,3 +49,15 @@ def test_cambiar_estado_camion_ok_si_no_esta_en_uso(query, table):
     )
 
     assert resultado["estado"] == "no_disponible"
+
+
+def test_la_patente_se_normaliza_al_crear_un_camion():
+    """Evita el caso real de una patente guardada con un espacio al final."""
+    assert CamionCreate(patente=" ag949lf ", marca="scania").patente == "AG949LF"
+    assert CamionCreate(patente="ai-283-wr").patente == "AI283WR"
+
+
+def test_el_acoplado_doble_conserva_la_barra_entre_patentes():
+    assert AcopladoCreate(patente="AH346HN/ AH346HM").patente == "AH346HN/AH346HM"
+    assert AcopladoUpdate(patente="ah346hl / ah346ho").patente == "AH346HL/AH346HO"
+    assert AcopladoUpdate(patente=None).patente is None

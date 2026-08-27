@@ -47,7 +47,7 @@ def obtener_camion(camion_id: str) -> dict:
 
 def crear_camion(datos: CamionCreate, usuario_id: UUID) -> dict:
     nuevo_camion = datos.model_dump(mode="json")
-    upper_fields(nuevo_camion, "patente", "marca", "modelo", "tipo")
+    upper_fields(nuevo_camion, "marca", "modelo", "tipo")
 
     patente_existente = supabase.table("camiones").select("id").eq("patente", nuevo_camion["patente"]).execute()
 

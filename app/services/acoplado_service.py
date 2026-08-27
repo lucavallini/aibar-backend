@@ -34,7 +34,7 @@ def obtener_acoplado(acoplado_id: str) -> dict:
 
 def crear_acoplado(datos: AcopladoCreate, usuario_id: UUID) -> dict:
     nuevo_acoplado = datos.model_dump(mode="json")
-    upper_fields(nuevo_acoplado, "patente", "tipo")
+    upper_fields(nuevo_acoplado, "tipo")
 
     patente_existente = supabase.table("acoplados").select("id").eq("patente", nuevo_acoplado["patente"]).execute()
 
@@ -63,7 +63,7 @@ def actualizar_acoplado(acoplado_id: str, datos: AcopladoUpdate, usuario_id: UUI
     obtener_acoplado(acoplado_id)
 
     cambios = datos.model_dump(exclude_unset=True, mode="json")
-    upper_fields(cambios, "patente", "tipo")
+    upper_fields(cambios, "tipo")
 
     if "patente" in cambios:
         patente_existente = supabase.table("acoplados").select("id").eq("patente", cambios["patente"]).neq("id", acoplado_id).execute()

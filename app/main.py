@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.routers import usuarios, auth, camiones, choferes, auditoria, viajes, multas, combustible, empresas, acoplados, observaciones
+from app.routers import usuarios, auth, camiones, choferes, auditoria, viajes, multas, combustible, empresas, acoplados, observaciones, telemetria
 from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, ForbiddenError, UnauthorizedError, InternalError, TooManyRequestsError
 from app.core.logging import configurar_logging, logger
 
@@ -63,6 +63,7 @@ app.include_router(combustible.router)
 app.include_router(empresas.router)
 app.include_router(acoplados.router)
 app.include_router(observaciones.router)
+app.include_router(telemetria.router)
 
 
 @app.get("/")

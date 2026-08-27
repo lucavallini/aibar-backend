@@ -3,9 +3,11 @@ from typing import Optional
 from datetime import datetime
 from uuid import UUID
 
+from app.models.common import Patente
+
 
 class AcopladoCreate(BaseModel):
-    patente: str = Field(..., min_length=6, max_length=20)
+    patente: Patente = Field(..., min_length=6, max_length=20)
     tipo: Optional[str] = None
     empresa_id: Optional[UUID] = None
 
@@ -22,7 +24,7 @@ class AcopladoOut(BaseModel):
 
 
 class AcopladoUpdate(BaseModel):
-    patente: Optional[str] = Field(None, min_length=6, max_length=20)
+    patente: Optional[Patente] = Field(None, min_length=6, max_length=20)
     tipo: Optional[str] = None
     empresa_id: Optional[UUID] = None
 
