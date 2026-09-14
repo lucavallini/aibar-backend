@@ -3,6 +3,8 @@ from typing import Optional
 from datetime import datetime, date
 from uuid import UUID
 
+from app.models.common import RespuestaPaginada
+
 
 class ChoferCreate(BaseModel):
     nombre_completo: str = Field(..., min_length=3, max_length=100)
@@ -27,6 +29,9 @@ class ChoferOut(BaseModel):
     creado_en: datetime
     creado_por: Optional[UUID] = None
     kms_mes_actual: Optional[float] = None
+    kms_periodo: Optional[float] = None
+    viajes_periodo: Optional[int] = None
+    promedio_kms_viaje: Optional[float] = None
     carnet_vencimiento: Optional[date] = None
     carga_peligrosa_vencimiento: Optional[date] = None
 
@@ -61,3 +66,17 @@ class ChoferDetalle(BaseModel):
     activo: bool
     kms_mes_actual: float
     historico: list[KmsPorMes]
+
+class ResumenPeriodo(BaseModel):
+    """Acumulado del período consultado sobre todos los choferes que pasan los filtros."""
+
+    desde: date
+    hasta: Optional[date] = None
+    total_kms: float
+    total_viajes: int
+
+
+class ChoferesPaginados(RespuestaPaginada[ChoferOut]):
+    """Listado paginado con el acumulado del período, para resolverlo en una sola consulta."""
+
+    periodo: Optional[ResumenPeriodo] = None

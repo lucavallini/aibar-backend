@@ -2,55 +2,118 @@ from app.database import supabase, armar_respuesta_paginada
 from app.models.chofer import ChoferCreate, ChoferUpdate, ChoferCambiarEstado
 from app.core.exceptions import NotFoundError, BadRequestError, ConflictError, InternalError
 from uuid import UUID
-from datetime import date
+from datetime import date, timedelta
 from app.services.auditoria_service import registrar_evento
 from app.utils.fields import upper_fields
 
-def listar_choferes(activos_only: bool = True, busqueda: str = None, pagina: int = 1, tamano_pagina: int = 20, incluir_kms_mes: bool = False, empresa_id: str = None) -> dict:
-    query = supabase.table("choferes").select("*", count="exact")
-
+def _filtrar_choferes(query, activos_only: bool, busqueda: str, empresa_id: str):
+    """Los mismos filtros para la página y para el acumulado, así nunca se desfasan."""
     if activos_only:
         query = query.eq("activo", True)
-
     if empresa_id:
         query = query.eq("empresa_id", empresa_id)
-
     if busqueda:
         query = query.ilike("nombre_completo", f"%{busqueda}%")
+    return query
 
-    query = query.order("nombre_completo")
 
-    resultado = armar_respuesta_paginada(query, pagina, tamano_pagina)
+def _resolver_ventana(dias: int = None, fecha_desde: str = None, fecha_hasta: str = None) -> tuple[date, date]:
+    """Ventana de tiempo a medir.
 
-    if incluir_kms_mes:
-        _adjuntar_kms_mes_actual(resultado)
+    Los filtros se intersecan, igual que en viajes: si llegan varios, manda el más
+    restrictivo. Sin ningún filtro se mide el mes en curso, que es el comportamiento
+    histórico de la pantalla.
+    """
+    inicios = []
+    if fecha_desde:
+        inicios.append(date.fromisoformat(fecha_desde))
+    if dias:
+        inicios.append(date.today() - timedelta(days=dias))
+    if not inicios:
+        inicios.append(date.today().replace(day=1))
 
-    return resultado
+    desde = max(inicios)
+    hasta = date.fromisoformat(fecha_hasta) if fecha_hasta else None
 
-def _adjuntar_kms_mes_actual(resultado: dict) -> None:
-    items = resultado.get("items", [])
-    ids = [chofer["id"] for chofer in items]
-    if not ids:
-        return
+    if hasta and hasta < desde:
+        raise BadRequestError("La fecha hasta no puede ser anterior a la fecha desde")
 
-    primer_dia_mes = date.today().replace(day=1).isoformat()
-    viajes = (
+    return desde, hasta
+
+
+def _acumular_por_chofer(chofer_ids: list, desde: date, hasta: date = None) -> dict[str, dict]:
+    """Kms y cantidad de viajes finalizados de cada chofer dentro de la ventana."""
+    if not chofer_ids:
+        return {}
+
+    query = (
         supabase.table("viajes")
         .select("chofer_id, kms_recorridos")
         .eq("estado", "finalizado")
-        .gte("fecha_inicio", primer_dia_mes)
-        .in_("chofer_id", ids)
-        .execute()
+        .in_("chofer_id", [str(c) for c in chofer_ids])
+        .gte("fecha_inicio", desde.isoformat())
     )
+    if hasta:
+        query = query.lte("fecha_inicio", f"{hasta.isoformat()}T23:59:59")
 
-    kms_por_chofer: dict[str, float] = {}
-    for viaje in viajes.data:
-        chofer_id = viaje.get("chofer_id")
-        kms = viaje.get("kms_recorridos") or 0
-        kms_por_chofer[chofer_id] = kms_por_chofer.get(chofer_id, 0) + kms
+    acumulado: dict[str, dict] = {}
+    for viaje in query.execute().data or []:
+        chofer_id = str(viaje.get("chofer_id"))
+        datos = acumulado.setdefault(chofer_id, {"kms": 0.0, "viajes": 0})
+        datos["kms"] += viaje.get("kms_recorridos") or 0
+        datos["viajes"] += 1
+    return acumulado
 
-    for chofer in items:
-        chofer["kms_mes_actual"] = kms_por_chofer.get(chofer["id"], 0)
+
+def _adjuntar_estadisticas(resultado: dict, acumulado: dict) -> None:
+    for chofer in resultado.get("items", []):
+        datos = acumulado.get(str(chofer["id"]), {"kms": 0.0, "viajes": 0})
+        viajes = datos["viajes"]
+        chofer["kms_periodo"] = round(datos["kms"], 2)
+        chofer["viajes_periodo"] = viajes
+        chofer["promedio_kms_viaje"] = round(datos["kms"] / viajes, 2) if viajes else 0.0
+        # Se mantiene por compatibilidad con la vista de detalle.
+        chofer["kms_mes_actual"] = chofer["kms_periodo"]
+
+
+def listar_choferes(
+    activos_only: bool = True,
+    busqueda: str = None,
+    pagina: int = 1,
+    tamano_pagina: int = 20,
+    incluir_estadisticas: bool = False,
+    empresa_id: str = None,
+    dias: int = None,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+) -> dict:
+    query = _filtrar_choferes(
+        supabase.table("choferes").select("*", count="exact"), activos_only, busqueda, empresa_id
+    )
+    resultado = armar_respuesta_paginada(query.order("nombre_completo"), pagina, tamano_pagina)
+
+    if not incluir_estadisticas:
+        return resultado
+
+    desde, hasta = _resolver_ventana(dias, fecha_desde, fecha_hasta)
+
+    # El total del período abarca a todos los choferes que pasan el filtro, no solo a los
+    # de la página que se está mirando.
+    alcanzados = _filtrar_choferes(
+        supabase.table("choferes").select("id"), activos_only, busqueda, empresa_id
+    ).execute().data or []
+
+    acumulado = _acumular_por_chofer([c["id"] for c in alcanzados], desde, hasta)
+    _adjuntar_estadisticas(resultado, acumulado)
+
+    resultado["periodo"] = {
+        "desde": desde,
+        "hasta": hasta,
+        "total_kms": round(sum(d["kms"] for d in acumulado.values()), 2),
+        "total_viajes": sum(d["viajes"] for d in acumulado.values()),
+    }
+    return resultado
+
 
 def crear_chofer(datos: ChoferCreate, creado_por: UUID) -> dict:
     nuevo_chofer = datos.model_dump(mode="json")

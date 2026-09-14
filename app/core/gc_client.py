@@ -28,6 +28,15 @@ _cache: dict[str, tuple[float, object]] = {}
 
 
 def _pedir_token() -> tuple[str, int]:
+    if not settings.gc_client_id or not settings.gc_client_secret:
+        logger.error(
+            "Faltan GC_CLIENT_ID y/o GC_CLIENT_SECRET en el entorno: "
+            "el rastreo satelital no puede autenticarse"
+        )
+        raise InternalError(
+            "El servicio de rastreo satelital no está configurado en el servidor"
+        )
+
     try:
         respuesta = httpx.post(
             f"{settings.gc_base_url.rstrip('/')}/api/ApiClientAuth/Token",

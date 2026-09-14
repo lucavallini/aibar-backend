@@ -1,7 +1,7 @@
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends
-from app.models.chofer import ChoferCreate, ChoferOut, ChoferUpdate, ChoferCambiarEstado, ChoferDetalle
+from app.models.chofer import ChoferCreate, ChoferOut, ChoferUpdate, ChoferCambiarEstado, ChoferDetalle, ChoferesPaginados
 from app.models.usuario import UsuarioOut
 from app.services.chofer_service import (
     crear_chofer,
@@ -20,14 +20,17 @@ from app.models.common import RespuestaPaginada
 router = APIRouter(prefix="/choferes", tags=["choferes"])
 
 
-@router.get("/", response_model=RespuestaPaginada[ChoferOut])
+@router.get("/", response_model=ChoferesPaginados)
 def obtener_choferes(
     activos_only: bool = True,
     busqueda: str = None,
     pagina: int = 1,
     tamano_pagina: int = 20,
-    incluir_kms_mes: bool = False,
+    incluir_estadisticas: bool = False,
     empresa_id: Optional[UUID] = None,
+    dias: Optional[int] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return listar_choferes(
@@ -35,8 +38,11 @@ def obtener_choferes(
         busqueda,
         pagina,
         tamano_pagina,
-        incluir_kms_mes,
+        incluir_estadisticas,
         str(empresa_id) if empresa_id else None,
+        dias,
+        fecha_desde,
+        fecha_hasta,
     )
 
 

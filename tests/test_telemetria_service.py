@@ -278,3 +278,16 @@ def test_una_unidad_que_el_proveedor_no_conoce_da_not_found(base_de_datos):
     with patch.object(telemetria_service.gc_client, "obtener_vehiculos", return_value=[]):
         with pytest.raises(NotFoundError):
             telemetria_service.obtener_recorrido_de_viaje("via-1")
+
+
+def test_sin_credenciales_configuradas_el_error_lo_dice(base_de_datos):
+    """En el servidor las credenciales van por variables de entorno; si faltan hay que saberlo."""
+    from app.config import settings
+    from app.core import gc_client
+    from app.core.exceptions import InternalError
+
+    gc_client.limpiar_cache()
+    with patch.object(settings, "gc_client_id", ""), patch.object(settings, "gc_client_secret", ""):
+        with pytest.raises(InternalError, match="no está configurado"):
+            telemetria_service.listar_flota()
+    gc_client.limpiar_cache()
