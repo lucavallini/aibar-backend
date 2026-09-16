@@ -1,7 +1,7 @@
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends
-from app.models.viaje import ViajeCreate, ViajeOut, ViajeEditar, ViajeCancelar, ViajeFinalizar, ViajeReanudar
+from app.models.viaje import ViajeCreate, ViajeOut, ViajeEditar, ViajeCancelar, ViajeFinalizar, ViajeReanudar, ViajeEliminado
 from app.models.usuario import UsuarioOut
 from app.services.viaje_service import (
     crear_viaje,
@@ -13,6 +13,7 @@ from app.services.viaje_service import (
     listar_viajes,
     agregar_vuelta,
     calcular_rendimiento_combustible,
+    eliminar_viaje,
 )
 from app.dependencies import require_rol
 from app.models.common import RespuestaPaginada
@@ -114,3 +115,12 @@ def obtener_rendimiento_combustible(
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar"))
 ):
     return calcular_rendimiento_combustible(str(chofer_id))
+
+
+@router.delete("/{viaje_id}", response_model=ViajeEliminado)
+def borrar_viaje(
+    viaje_id: UUID,
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador"))
+):
+    """Borrado definitivo. Se lleva el viaje de vuelta y las cargas de combustible."""
+    return eliminar_viaje(str(viaje_id), usuario_id=usuario_actual.id)

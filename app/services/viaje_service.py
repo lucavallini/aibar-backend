@@ -7,6 +7,10 @@ from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from app.utils.fields import upper_fields
 
+# Un viaje en estos estados todavía tiene reservados al chofer y a las unidades.
+ESTADOS_ACTIVOS = ["pendiente", "en_curso"]
+
+
 def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, patente: str = None, fecha_desde: str = None, fecha_hasta: str = None, empresa_id: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
     query = supabase.table("viajes").select("*", count="exact")
 
@@ -176,7 +180,7 @@ def _liberar_unidad(unidad_id, excepto: str = None) -> None:
     en_uso = (
         supabase.table("viajes")
         .select("id")
-        .in_("estado", ["pendiente", "en_curso"])
+        .in_("estado", ESTADOS_ACTIVOS)
         .or_(f"camion_id.eq.{unidad_id},camion_id_2.eq.{unidad_id}")
         .execute()
     )
@@ -196,7 +200,7 @@ def _unidad_en_viaje(unidad_id: str) -> bool:
     en_uso = (
         supabase.table("viajes")
         .select("id")
-        .in_("estado", ["pendiente", "en_curso"])
+        .in_("estado", ESTADOS_ACTIVOS)
         .or_(f"camion_id.eq.{unidad_id},camion_id_2.eq.{unidad_id}")
         .execute()
     )
@@ -602,3 +606,110 @@ def finalizar_viaje(viaje_id: str, datos: ViajeFinalizar, usuario_id: UUID) -> d
     return resultado.data[0]
 
 
+
+
+def _viajes_del_par(viaje_id: str, viaje: dict) -> list[dict]:
+    """Ida y vuelta son un mismo trabajo: se borran juntos.
+
+    Puede llegar el id de cualquiera de los dos y la cadena puede tener más de un tramo,
+    así que se recorre en ambos sentidos hasta que no aparezcan más.
+    """
+    par: dict[str, dict] = {viaje_id: viaje}
+    pendientes = [viaje_id]
+
+    while pendientes:
+        actual_id = pendientes.pop()
+        actual = par[actual_id]
+
+        vuelta_id = actual.get("viaje_vuelta_id")
+        if vuelta_id and str(vuelta_id) not in par:
+            par[str(vuelta_id)] = _obtener_viaje(str(vuelta_id))
+            pendientes.append(str(vuelta_id))
+
+        idas = (
+            supabase.table("viajes").select("*").eq("viaje_vuelta_id", actual_id).execute()
+        ).data or []
+        for ida in idas:
+            if str(ida["id"]) not in par:
+                par[str(ida["id"])] = ida
+                pendientes.append(str(ida["id"]))
+
+    return [{**v, "id": vid} for vid, v in par.items()]
+
+
+def _liberar_chofer(chofer_id) -> None:
+    """Igual que con las unidades: no se libera si le quedó otro viaje activo."""
+    if not chofer_id:
+        return
+    chofer_id = str(chofer_id)
+
+    en_uso = (
+        supabase.table("viajes")
+        .select("id")
+        .eq("chofer_id", chofer_id)
+        .in_("estado", ESTADOS_ACTIVOS)
+        .execute()
+    ).data
+    if en_uso:
+        return
+
+    supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id).in_(
+        "estado", ["esperando_iniciar_viaje", "viajando"]
+    ).execute()
+
+
+def eliminar_viaje(viaje_id: str, usuario_id: UUID) -> dict:
+    """Borra el viaje de forma definitiva, con su vuelta y sus cargas de combustible.
+
+    No es una baja lógica: los registros dejan de existir y de sumar en cualquier total.
+    """
+    viaje = _obtener_viaje(viaje_id)
+    del_par = _viajes_del_par(viaje_id, viaje)
+    ids = [v["id"] for v in del_par]
+
+    detalle = " | ".join(
+        f"{v['origen']} -> {v['destino']} ({v['estado']}, {str(v['fecha_inicio'])[:10]})"
+        for v in del_par
+    )
+
+    # Las cargas de combustible del viaje se van con él: si quedaran, seguirían sumando
+    # en el gasto y el rendimiento del camión.
+    combustible = (
+        supabase.table("cargas_combustible").delete().in_("viaje_id", ids).execute()
+    ).data or []
+
+    # La multa no se borra: es un hecho propio del camión y del chofer, con valor legal
+    # más allá del viaje. Se le suelta la referencia, que además es lo que impide borrar.
+    multas = (
+        supabase.table("multas").update({"viaje_id": None}).in_("viaje_id", ids).execute()
+    ).data or []
+
+    # La ida apunta a la vuelta: hay que soltar la referencia antes de borrar.
+    supabase.table("viajes").update({"viaje_vuelta_id": None}).in_("id", ids).execute()
+
+    borrados = (supabase.table("viajes").delete().in_("id", ids).execute()).data or []
+    if not borrados:
+        raise InternalError("No se pudo eliminar el viaje")
+
+    # Recién con los viajes ya borrados se liberan las unidades: así el chequeo de
+    # "¿está tomada por otro viaje activo?" no se encuentra con los que acabamos de borrar.
+    for v in del_par:
+        _liberar_chofer(v.get("chofer_id"))
+        _liberar_unidad(v.get("camion_id"))
+        _liberar_unidad(v.get("camion_id_2"))
+
+    registrar_evento(
+        usuario_id=usuario_id,
+        tipo_accion="baja",
+        entidad="viaje",
+        entidad_id=viaje_id,
+        detalle=f"Viaje eliminado definitivamente: {detalle}"
+        + (f" | {len(combustible)} carga(s) de combustible" if combustible else "")
+        + (f" | {len(multas)} multa(s) desvinculada(s)" if multas else ""),
+    )
+
+    return {
+        "eliminados": len(borrados),
+        "cargas_combustible_eliminadas": len(combustible),
+        "multas_desvinculadas": len(multas),
+    }

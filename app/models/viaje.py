@@ -74,3 +74,10 @@ class ViajeFinalizar(BaseModel):
     kms_descargado: Optional[float] = None
     litros_combustible: Optional[float] = None
     solo_ida: bool = False
+
+class ViajeEliminado(BaseModel):
+    """Resultado del borrado definitivo: cuántos registros dejaron de existir."""
+
+    eliminados: int
+    cargas_combustible_eliminadas: int
+    multas_desvinculadas: int

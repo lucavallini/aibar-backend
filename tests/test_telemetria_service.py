@@ -291,3 +291,61 @@ def test_sin_credenciales_configuradas_el_error_lo_dice(base_de_datos):
         with pytest.raises(InternalError, match="no está configurado"):
             telemetria_service.listar_flota()
     gc_client.limpiar_cache()
+
+
+def test_se_puede_buscar_por_el_nombre_del_chofer(base_de_datos):
+    """En el mapa se busca tanto por patente como por quién está manejando."""
+    base_de_datos["camiones"] = [_camion("AE195MX"), _camion("AB155BS", camion_id="cam-2")]
+    base_de_datos["viajes"] = [_viaje()]
+    base_de_datos["choferes"] = [{"id": "cho-1", "nombre_completo": "JUAN PEREZ"}]
+
+    resultado = _listar(_snapshot(_vehiculo_gps("AE195MX")), busqueda="perez")
+
+    assert [u["patente"] for u in resultado["unidades"]] == ["AE195MX"]
+
+
+def test_la_busqueda_por_patente_sigue_andando(base_de_datos):
+    base_de_datos["camiones"] = [_camion("AE195MX"), _camion("AB155BS", camion_id="cam-2")]
+
+    resultado = _listar(_snapshot(), busqueda="ae195")
+
+    assert [u["patente"] for u in resultado["unidades"]] == ["AE195MX"]
+
+
+def test_una_unidad_sin_chofer_no_rompe_la_busqueda_por_nombre(base_de_datos):
+    base_de_datos["camiones"] = [_camion("AE195MX")]
+
+    assert _listar(_snapshot(), busqueda="perez")["unidades"] == []
+
+
+def test_un_viaje_mas_viejo_que_la_retencion_lo_avisa(base_de_datos):
+    """El proveedor guarda ~6 meses: sin ese aviso el mapa queda vacío sin explicación."""
+    from datetime import datetime, timedelta
+
+    viejo = (datetime.now(telemetria_service.ZONA_ARGENTINA) - timedelta(days=300)).isoformat()
+    base_de_datos["viajes"] = [_viaje_fila(fecha_inicio=viejo, fecha_fin=viejo)]
+    base_de_datos["camiones"] = [_camion("AE729EO")]
+
+    with patch.object(telemetria_service.gc_client, "obtener_vehiculos",
+                      return_value=[{"LicensePlate": "AE729EO", "VehicleId": "_07558"}]), \
+         patch.object(telemetria_service.gc_client, "obtener_recorrido",
+                      return_value={"Summary": {}, "Positions": [], "Stops": []}), \
+         patch.object(telemetria_service.gc_client, "obtener_snapshot", return_value=_snapshot()):
+        r = telemetria_service.obtener_recorrido_de_viaje("via-1")
+
+    assert r["sin_datos_por_antiguedad"] is True
+    assert r["puntos"] == []
+
+
+def test_un_viaje_reciente_sin_traza_no_culpa_a_la_antiguedad(base_de_datos):
+    base_de_datos["viajes"] = [_viaje_fila()]
+    base_de_datos["camiones"] = [_camion("AE729EO")]
+
+    with patch.object(telemetria_service.gc_client, "obtener_vehiculos",
+                      return_value=[{"LicensePlate": "AE729EO", "VehicleId": "_07558"}]), \
+         patch.object(telemetria_service.gc_client, "obtener_recorrido",
+                      return_value={"Summary": {}, "Positions": [], "Stops": []}), \
+         patch.object(telemetria_service.gc_client, "obtener_snapshot", return_value=_snapshot()):
+        r = telemetria_service.obtener_recorrido_de_viaje("via-1")
+
+    assert r["sin_datos_por_antiguedad"] is False

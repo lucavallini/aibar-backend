@@ -4,9 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.dependencies import require_rol
-from app.models.telemetria import FlotaOut, RecorridoOut
+from app.models.telemetria import FlotaOut, RecorridoOut, ViajeHistorico
 from app.models.usuario import UsuarioOut
-from app.services.telemetria_service import listar_flota, obtener_recorrido_de_viaje
+from app.services.telemetria_service import buscar_viajes, listar_flota, obtener_recorrido_de_viaje
 
 router = APIRouter(prefix="/telemetria", tags=["telemetria"])
 
@@ -33,3 +33,16 @@ def obtener_recorrido(
     usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar")),
 ):
     return obtener_recorrido_de_viaje(str(viaje_id))
+
+
+@router.get("/viajes", response_model=list[ViajeHistorico])
+def obtener_viajes_historicos(
+    chofer_id: Optional[UUID] = None,
+    patente: Optional[str] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    usuario_actual: UsuarioOut = Depends(require_rol("administrador", "empleado", "aibar")),
+):
+    return buscar_viajes(
+        str(chofer_id) if chofer_id else None, patente, fecha_desde, fecha_hasta
+    )

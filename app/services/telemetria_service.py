@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.core import gc_client
 from app.core.exceptions import BadRequestError, NotFoundError
+from app.services.viaje_service import listar_viajes
 from app.database import supabase
 from app.utils.fields import normalizar_patente
 
@@ -109,8 +110,17 @@ def _datos_propios(camion: dict, viajes: dict, empresas: dict) -> dict:
     }
 
 
+def _coincide_busqueda(unidad: dict, busqueda: str) -> bool:
+    """Se llega a una unidad por su patente o por el chofer que la está manejando."""
+    if normalizar_patente(busqueda) in normalizar_patente(unidad.get("patente")):
+        return True
+
+    chofer = ((unidad.get("viaje") or {}).get("chofer_nombre") or "").lower()
+    return busqueda.strip().lower() in chofer if chofer else False
+
+
 def _coincide(unidad: dict, busqueda: str | None, empresa_id: str | None, solo_en_viaje: bool) -> bool:
-    if busqueda and normalizar_patente(busqueda) not in normalizar_patente(unidad["patente"]):
+    if busqueda and not _coincide_busqueda(unidad, busqueda):
         return False
     if empresa_id and str(unidad.get("empresa_id")) != empresa_id:
         return False
@@ -195,6 +205,9 @@ ZONA_ARGENTINA = timezone(timedelta(hours=-3))
 FORMATO_FECHA_HORA = "%d/%m/%Y %H:%M:%S"
 FORMATO_FECHA = "%d/%m/%Y"
 MAX_DIAS_RECORRIDO = 31
+
+# El proveedor conserva alrededor de medio año de recorridos; medido contra su API.
+DIAS_RETENCION_PROVEEDOR = 180
 
 
 def _a_decimal(valor) -> float:
@@ -320,5 +333,57 @@ def obtener_recorrido_de_viaje(viaje_id: str) -> dict:
         "puntos": en_ventana,
         "detenciones": [d for d in detenciones if desde <= d["inicio"] <= hasta],
         "recortado": len(en_ventana) < len(puntos),
+        "sin_datos_por_antiguedad": not puntos
+        and (datetime.now(ZONA_ARGENTINA) - hasta).days > DIAS_RETENCION_PROVEEDOR,
         "en_camino": viaje["estado"] in ESTADOS_VIAJE_ACTIVO and _viene_en_camino(patente),
     }
+
+
+MAX_VIAJES_HISTORICO = 50
+
+
+def buscar_viajes(
+    chofer_id: str = None,
+    patente: str = None,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+) -> list[dict]:
+    """Viajes para el buscador del mapa, con la patente y el chofer ya resueltos.
+
+    Reusa el filtrado de viajes que ya existe; lo único que agrega es lo que el mapa
+    necesita mostrar sin tener que cruzar identificadores por su cuenta.
+    """
+    resultado = listar_viajes(
+        chofer_id=chofer_id,
+        patente=patente,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        tamano_pagina=MAX_VIAJES_HISTORICO,
+    )
+    viajes = resultado.get("items", [])
+    if not viajes:
+        return []
+
+    nombres = _nombres_de_choferes([v["chofer_id"] for v in viajes if v.get("chofer_id")])
+
+    ids_camion = {str(v[c]) for v in viajes for c in ("camion_id", "camion_id_2") if v.get(c)}
+    patentes = {}
+    if ids_camion:
+        filas = (
+            supabase.table("camiones").select("id,patente").in_("id", list(ids_camion)).execute()
+        ).data or []
+        patentes = {str(f["id"]): f["patente"] for f in filas}
+
+    return [
+        {
+            "id": v["id"],
+            "origen": v["origen"],
+            "destino": v["destino"],
+            "estado": v["estado"],
+            "fecha_inicio": v["fecha_inicio"],
+            "fecha_fin": v.get("fecha_fin"),
+            "chofer_nombre": nombres.get(str(v.get("chofer_id"))),
+            "patente": patentes.get(str(v.get("camion_id"))) or patentes.get(str(v.get("camion_id_2"))),
+        }
+        for v in viajes
+    ]

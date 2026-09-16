@@ -135,3 +135,18 @@ class RecorridoOut(BaseModel):
     """True cuando el proveedor devolvió días completos y se recortó al rango del viaje."""
     en_camino: bool
     """True si la unidad sigue rodando: el último punto es dónde va, no dónde llegó."""
+    sin_datos_por_antiguedad: bool
+    """True cuando no hay traza porque el viaje quedó fuera de lo que el proveedor guarda."""
+
+
+class ViajeHistorico(BaseModel):
+    """Viaje del buscador del mapa, listo para listar sin resolver nada más."""
+
+    id: UUID
+    origen: str
+    destino: str
+    estado: str
+    fecha_inicio: datetime
+    fecha_fin: Optional[datetime] = None
+    chofer_nombre: Optional[str] = None
+    patente: Optional[str] = None
