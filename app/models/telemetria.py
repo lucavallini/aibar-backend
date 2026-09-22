@@ -127,8 +127,13 @@ class DetencionRecorrido(BaseModel):
 class RecorridoOut(BaseModel):
     viaje_id: UUID
     patente: str
-    distancia_km: float
+    distancia_viaje_km: float
+    """Kilómetros recorridos dentro del rango real del viaje."""
+    distancia_periodo_km: float
+    """Kilómetros de los días completos que el proveedor devolvió, sin recortar."""
     velocidad_maxima_kph: int
+    """Máxima dentro del viaje."""
+    velocidad_maxima_periodo_kph: int
     puntos: list[PuntoRecorrido]
     detenciones: list[DetencionRecorrido]
     recortado: bool

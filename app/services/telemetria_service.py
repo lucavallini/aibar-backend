@@ -254,6 +254,30 @@ def _detencion(parada: dict) -> dict | None:
     }
 
 
+def _distancia_en_ventana(posiciones: list[dict], desde: datetime, hasta: datetime) -> float:
+    """Kilómetros recorridos dentro del rango real del viaje.
+
+    El total que informa el proveedor cubre los días completos que pidió la consulta, así
+    que incluye lo que la unidad hizo antes de salir y después de llegar. Su contador de
+    metros se reinicia en cada tramo, por eso se suman los incrementos y, cuando baja, el
+    valor nuevo es el arranque del tramo siguiente. Sumado sobre todo el período reproduce
+    exactamente el total del proveedor, así que el criterio es el mismo.
+    """
+    total = 0.0
+    previo = None
+
+    for posicion in posiciones:
+        metros = posicion.get("TotalDistanceMeters") or 0
+        avance = (metros - previo) if previo is not None and metros >= previo else metros
+        previo = metros
+
+        momento = _a_momento(posicion.get("DateAt"))
+        if momento and desde <= momento <= hasta:
+            total += avance
+
+    return round(total / 1000, 2)
+
+
 def _id_vehiculo(patente: str) -> str:
     """Traduce la patente propia al identificador que usa el proveedor."""
     padron = {
@@ -319,7 +343,8 @@ def obtener_recorrido_de_viaje(viaje_id: str) -> dict:
         incluir_posiciones=True,
     ) or {}
 
-    puntos = [p for p in map(_punto, crudo.get("Positions") or []) if p]
+    posiciones = crudo.get("Positions") or []
+    puntos = [p for p in map(_punto, posiciones) if p]
     detenciones = [d for d in map(_detencion, crudo.get("Stops") or []) if d]
 
     en_ventana = [p for p in puntos if desde <= p["momento"] <= hasta]
@@ -328,8 +353,10 @@ def obtener_recorrido_de_viaje(viaje_id: str) -> dict:
     return {
         "viaje_id": viaje_id,
         "patente": patente,
-        "distancia_km": _a_decimal(resumen.get("DistanceKm")),
-        "velocidad_maxima_kph": int(_a_decimal(resumen.get("MaxSpeedKmh"))),
+        "distancia_viaje_km": _distancia_en_ventana(posiciones, desde, hasta),
+        "distancia_periodo_km": _a_decimal(resumen.get("DistanceKm")),
+        "velocidad_maxima_kph": int(max((p["velocidad_kph"] for p in en_ventana), default=0)),
+        "velocidad_maxima_periodo_kph": int(_a_decimal(resumen.get("MaxSpeedKmh"))),
         "puntos": en_ventana,
         "detenciones": [d for d in detenciones if desde <= d["inicio"] <= hasta],
         "recortado": len(en_ventana) < len(puntos),

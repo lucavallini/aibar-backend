@@ -212,12 +212,16 @@ def _viaje_fila(**extra) -> dict:
 
 
 def _recorrido_crudo() -> dict:
+    """Tres posiciones: la primera antes de salir, la del medio en viaje, la última después."""
     return {
         "Summary": {"DistanceKm": 615.111, "MaxSpeedKmh": 88},
         "Positions": [
-            {"DateAt": "24/08/2026 18:00:00", "Lat": "-33.1 ", "Lon": "-59.3", "Speed": "0", "SpeedLimit": "80"},
-            {"DateAt": "24/08/2026 20:30:00", "Lat": "-33.14817", "Lon": "-59.3039", "Speed": "62", "SpeedLimit": "80"},
-            {"DateAt": "25/08/2026 23:00:00", "Lat": "-33.0", "Lon": "-58.5", "Speed": "10", "SpeedLimit": "80"},
+            {"DateAt": "24/08/2026 18:00:00", "Lat": "-33.1 ", "Lon": "-59.3", "Speed": "0",
+             "SpeedLimit": "80", "TotalDistanceMeters": 40000},
+            {"DateAt": "24/08/2026 20:30:00", "Lat": "-33.14817", "Lon": "-59.3039", "Speed": "62",
+             "SpeedLimit": "80", "TotalDistanceMeters": 140000},
+            {"DateAt": "25/08/2026 23:00:00", "Lat": "-33.0", "Lon": "-58.5", "Speed": "10",
+             "SpeedLimit": "80", "TotalDistanceMeters": 300000},
         ],
         "Stops": [
             {"StartAt": "24/08/2026 21:00:00", "EndAt": "24/08/2026 21:30:00",
@@ -241,7 +245,10 @@ def test_el_recorrido_se_recorta_a_la_ventana_del_viaje(base_de_datos):
     assert r["puntos"][0]["latitud"] == -33.14817
     assert r["recortado"] is True
     assert r["en_camino"] is False
-    assert r["distancia_km"] == 615.111
+    # El viaje va de 19:00 del 24 a 14:00 del 25: solo entra la posición de las 20:30,
+    # que aportó 100 km. Los 40 km previos y los 160 posteriores quedan afuera.
+    assert r["distancia_viaje_km"] == 100.0
+    assert r["distancia_periodo_km"] == 615.111
     assert len(r["detenciones"]) == 1
 
 
@@ -349,3 +356,37 @@ def test_un_viaje_reciente_sin_traza_no_culpa_a_la_antiguedad(base_de_datos):
         r = telemetria_service.obtener_recorrido_de_viaje("via-1")
 
     assert r["sin_datos_por_antiguedad"] is False
+
+
+def test_la_distancia_del_viaje_no_cuenta_lo_de_antes_ni_lo_de_despues(base_de_datos):
+    """El total del proveedor cubre los días completos; el del viaje, solo su ventana."""
+    base_de_datos["viajes"] = [_viaje_fila()]
+    base_de_datos["camiones"] = [_camion("AE729EO")]
+
+    with patch.object(telemetria_service.gc_client, "obtener_vehiculos",
+                      return_value=[{"LicensePlate": "AE729EO", "VehicleId": "_07558"}]), \
+         patch.object(telemetria_service.gc_client, "obtener_recorrido",
+                      return_value=_recorrido_crudo()):
+        r = telemetria_service.obtener_recorrido_de_viaje("via-1")
+
+    assert r["distancia_viaje_km"] < r["distancia_periodo_km"]
+    assert r["velocidad_maxima_kph"] == 62  # la de la posición en ventana, no los 88 del período
+    assert r["velocidad_maxima_periodo_kph"] == 88
+
+
+def test_el_contador_del_proveedor_se_reinicia_en_cada_tramo():
+    """Cuando baja, el valor nuevo es el arranque del tramo siguiente, no un retroceso."""
+    from datetime import datetime
+
+    zona = telemetria_service.ZONA_ARGENTINA
+    desde = datetime(2026, 8, 24, 0, 0, tzinfo=zona)
+    hasta = datetime(2026, 8, 24, 23, 59, tzinfo=zona)
+    posiciones = [
+        {"DateAt": "24/08/2026 08:00:00", "TotalDistanceMeters": 0},
+        {"DateAt": "24/08/2026 09:00:00", "TotalDistanceMeters": 50000},
+        # Arranca otro tramo: el contador vuelve a empezar
+        {"DateAt": "24/08/2026 14:00:00", "TotalDistanceMeters": 20000},
+        {"DateAt": "24/08/2026 16:00:00", "TotalDistanceMeters": 70000},
+    ]
+
+    assert telemetria_service._distancia_en_ventana(posiciones, desde, hasta) == 120.0
