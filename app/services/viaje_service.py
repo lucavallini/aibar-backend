@@ -10,6 +10,73 @@ from app.utils.fields import upper_fields
 # Un viaje en estos estados todavía tiene reservados al chofer y a las unidades.
 ESTADOS_ACTIVOS = ["pendiente", "en_curso"]
 
+# Estados que son consecuencia de los viajes. El resto —no_disponible por taller,
+# licencia, inactivo— los decide una persona y no se tocan nunca.
+ESTADOS_DERIVADOS = ["disponible", "esperando_iniciar_viaje", "viajando"]
+
+
+def _estado_segun_viajes(viajes_activos: list[dict], unidad_id: str, campos: tuple) -> str:
+    """El estado que le corresponde a una unidad según los viajes que la tienen tomada."""
+    suyos = [
+        v for v in viajes_activos
+        if any(str(v.get(c)) == unidad_id for c in campos)
+    ]
+    if any(v["estado"] == "en_curso" for v in suyos):
+        return "viajando"
+    if suyos:
+        return "esperando_iniciar_viaje"
+    return "disponible"
+
+
+def _sincronizar(ids: tuple, campos: tuple, tabla_fija: str = None) -> None:
+    """Reescribe el estado de cada unidad para que refleje sus viajes.
+
+    Es el único lugar del sistema que decide si una unidad está libre u ocupada. Antes
+    cada operación tenía que acordarse de liberar por su cuenta y alcanzaba con que una
+    se olvidara para que un camión quedara reservado sin viaje y desapareciera de los
+    desplegables. Acá el estado deja de ser algo que alguien escribe y pasa a ser una
+    consecuencia de los viajes, así que no se puede desincronizar.
+    """
+    limpios = {str(i) for i in ids if i}
+    if not limpios:
+        return
+
+    viajes = (
+        supabase.table("viajes")
+        .select("estado,camion_id,camion_id_2,chofer_id")
+        .in_("estado", ESTADOS_ACTIVOS)
+        .execute()
+    ).data or []
+
+    for unidad_id in limpios:
+        tabla = tabla_fija or _tabla_unidad(unidad_id)
+        if not tabla:
+            continue
+        # El filtro por estado protege lo que decidió una persona: si la unidad está en
+        # el taller o el chofer de licencia, el update no alcanza ninguna fila.
+        (
+            supabase.table(tabla)
+            .update({"estado": _estado_segun_viajes(viajes, unidad_id, campos)})
+            .eq("id", unidad_id)
+            .in_("estado", ESTADOS_DERIVADOS)
+            .execute()
+        )
+
+
+def sincronizar_unidades(*ids) -> None:
+    """Camiones y acoplados: la tabla se resuelve sola a partir del identificador."""
+    _sincronizar(ids, ("camion_id", "camion_id_2"))
+
+
+def sincronizar_choferes(*ids) -> None:
+    _sincronizar(ids, ("chofer_id",), tabla_fija="choferes")
+
+
+def sincronizar_viaje(viaje: dict, *unidades_extra) -> None:
+    """Pone al día todo lo que un viaje tiene o tuvo tomado."""
+    sincronizar_unidades(viaje.get("camion_id"), viaje.get("camion_id_2"), *unidades_extra)
+    sincronizar_choferes(viaje.get("chofer_id"))
+
 
 def listar_viajes(chofer_id: str = None, estado: str = None, dias: int = None, patente: str = None, fecha_desde: str = None, fecha_hasta: str = None, empresa_id: str = None, pagina: int = 1, tamano_pagina: int = 20) -> dict:
     query = supabase.table("viajes").select("*", count="exact")
@@ -169,31 +236,6 @@ def _reservar_unidad(unidad_id, estado_nuevo: str) -> None:
         )
 
 
-def _liberar_unidad(unidad_id, excepto: str = None) -> None:
-    if not unidad_id:
-        return
-    unidad_id = str(unidad_id)
-    tabla = _tabla_unidad(unidad_id)
-    if not tabla:
-        return
-
-    en_uso = (
-        supabase.table("viajes")
-        .select("id")
-        .in_("estado", ESTADOS_ACTIVOS)
-        .or_(f"camion_id.eq.{unidad_id},camion_id_2.eq.{unidad_id}")
-        .execute()
-    )
-    if excepto:
-        en_uso.data = [v for v in en_uso.data if v["id"] != excepto]
-    if en_uso.data:
-        return
-
-    supabase.table(tabla).update({"estado": "disponible"}).eq("id", unidad_id).in_(
-        "estado", ["esperando_iniciar_viaje", "viajando"]
-    ).execute()
-
-
 def _unidad_en_viaje(unidad_id: str) -> bool:
     if not unidad_id:
         return False
@@ -234,7 +276,7 @@ def crear_viaje(datos: ViajeCreate, asignado_por: UUID) -> dict:
         logger.error("Fallo al reservar unidades para nuevo viaje, revirtiendo reservas", exc_info=True)
         supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
         for unidad_id in unidades_reservadas:
-            _liberar_unidad(unidad_id, excepto=None)
+            sincronizar_unidades(unidad_id)
         raise
 
     nuevo_viaje = datos.model_dump(mode="json", exclude_unset=True)
@@ -250,7 +292,7 @@ def crear_viaje(datos: ViajeCreate, asignado_por: UUID) -> dict:
     if not resultado.data:
         supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
         for unidad_id in unidades_reservadas:
-            _liberar_unidad(unidad_id, excepto=None)
+            sincronizar_unidades(unidad_id)
         raise InternalError("No se pudo crear el viaje")
 
     viaje_creado = resultado.data[0]
@@ -282,17 +324,15 @@ def editar_viaje(viaje_id: str, datos: ViajeEditar, usuario_id: UUID) -> dict:
 
     nuevo_camion_id_2 = cambios.get("camion_id_2")
     viejo_camion_id_2 = viaje.get("camion_id_2")
-    reservo_nueva = False
-    if "camion_id_2" in cambios and nuevo_camion_id_2:
+    if "camion_id_2" in cambios and nuevo_camion_id_2 and str(nuevo_camion_id_2) != str(viejo_camion_id_2):
         estado_nuevo = "viajando" if viaje["estado"] == "en_curso" else "esperando_iniciar_viaje"
         _reservar_unidad(nuevo_camion_id_2, estado_nuevo)
-        reservo_nueva = True
 
     resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
     viaje_editado = resultado.data[0]
 
-    if reservo_nueva and str(nuevo_camion_id_2) != str(viejo_camion_id_2):
-        _liberar_unidad(viejo_camion_id_2, excepto=viaje_id)
+    # Se pone al día el viaje como quedó, más el acoplado que pudo haber salido.
+    sincronizar_viaje(viaje_editado, viejo_camion_id_2)
 
     registrar_evento(
         usuario_id=usuario_id,
@@ -331,41 +371,41 @@ def reanudar_viaje(viaje_id: str, datos: ViajeReanudar, usuario_id: UUID) -> dic
 
     nuevo_chofer_id = str(datos.chofer_id) if datos.chofer_id else viaje["chofer_id"]
     if nuevo_chofer_id != viaje["chofer_id"]:
-        reserva = (
-            supabase.table("choferes")
-            .update({"estado": "esperando_iniciar_viaje"})
-            .eq("id", nuevo_chofer_id)
-            .eq("estado", "disponible")
-            .execute()
-        )
-        if not reserva.data:
-            raise ConflictError("El chofer seleccionado no está disponible")
         cambios["chofer_id"] = nuevo_chofer_id
-    else:
-        supabase.table("choferes").update({"estado": "esperando_iniciar_viaje"}).eq("id", viaje["chofer_id"]).execute()
 
-    unidades_nuevas = []
+    # Se reserva lo que el viaje va a tener, haya cambiado o no: al cancelarlo quedó
+    # todo liberado, así que reanudarlo exige volver a tomarlo.
+    reserva = (
+        supabase.table("choferes")
+        .update({"estado": "esperando_iniciar_viaje"})
+        .eq("id", nuevo_chofer_id)
+        .eq("estado", "disponible")
+        .execute()
+    )
+    if not reserva.data:
+        raise ConflictError("El chofer seleccionado no está disponible")
+
+    unidades_finales = [
+        cambios.get(campo) or viaje.get(campo) for campo in ("camion_id", "camion_id_2")
+    ]
+    tomadas = []
     try:
-        for campo in ("camion_id", "camion_id_2"):
-            valor = cambios.get(campo)
-            if valor:
-                _reservar_unidad(valor, "esperando_iniciar_viaje")
-                unidades_nuevas.append(str(valor))
+        for unidad_id in unidades_finales:
+            if unidad_id:
+                _reservar_unidad(unidad_id, "esperando_iniciar_viaje")
+                tomadas.append(str(unidad_id))
     except Exception:
-        logger.error("Fallo al reservar unidades al reanudar viaje %s, revirtiendo reservas", viaje_id, exc_info=True)
-        if nuevo_chofer_id != viaje["chofer_id"]:
-            supabase.table("choferes").update({"estado": "disponible"}).eq("id", nuevo_chofer_id).execute()
-        else:
-            supabase.table("choferes").update({"estado": "disponible"}).eq("id", viaje["chofer_id"]).execute()
-        for unidad_id in unidades_nuevas:
-            _liberar_unidad(unidad_id, excepto=None)
+        logger.error("Fallo al reservar unidades al reanudar el viaje %s, revirtiendo", viaje_id, exc_info=True)
+        supabase.table("choferes").update({"estado": "disponible"}).eq("id", nuevo_chofer_id).execute()
+        for unidad_id in tomadas:
+            sincronizar_unidades(unidad_id)
         raise
 
     resultado = supabase.table("viajes").update(cambios).eq("id", viaje_id).execute()
 
-    for campo in ("camion_id", "camion_id_2"):
-        if campo in cambios and cambios[campo] != viaje.get(campo):
-            _liberar_unidad(viaje.get(campo), excepto=viaje_id)
+    # Las unidades que el viaje dejó de usar vuelven a quedar libres solas.
+    sincronizar_viaje(resultado.data[0], viaje.get("camion_id"), viaje.get("camion_id_2"))
+    sincronizar_choferes(viaje["chofer_id"])
 
     registrar_evento(
         usuario_id=usuario_id,
@@ -391,10 +431,7 @@ def cancelar_viaje(viaje_id: str, datos: ViajeCancelar, usuario_id: UUID) -> dic
         .execute()
     )
 
-    # El chofer y las unidades vuelven a estar disponibles
-    supabase.table("choferes").update({"estado": "disponible"}).eq("id", viaje["chofer_id"]).execute()
-    _liberar_unidad(viaje.get("camion_id"), excepto=viaje_id)
-    _liberar_unidad(viaje.get("camion_id_2"), excepto=viaje_id)
+    sincronizar_viaje(viaje)
 
     registrar_evento(
         usuario_id=usuario_id,
@@ -482,7 +519,7 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
         if viaje_original["chofer_id"] != chofer_id_str:
             supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
         for unidad_id in unidades_reservadas:
-            _liberar_unidad(unidad_id, excepto=None)
+            sincronizar_unidades(unidad_id)
         raise
 
     nuevo_viaje = datos.model_dump(mode="json", exclude_unset=True)
@@ -499,7 +536,7 @@ def agregar_vuelta(viaje_id: str, datos: ViajeCreate, asignado_por: UUID) -> dic
         if viaje_original["chofer_id"] != chofer_id_str:
             supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id_str).execute()
         for unidad_id in unidades_reservadas:
-            _liberar_unidad(unidad_id, excepto=None)
+            sincronizar_unidades(unidad_id)
         raise InternalError("No se pudo crear el viaje de vuelta")
 
     viaje_vuelta_id = resultado.data[0]["id"]
@@ -582,9 +619,7 @@ def finalizar_viaje(viaje_id: str, datos: ViajeFinalizar, usuario_id: UUID) -> d
             }
             supabase.table("cargas_combustible").insert(carga).execute()
 
-    supabase.table("choferes").update({"estado": "disponible"}).eq("id", viaje["chofer_id"]).execute()
-    _liberar_unidad(viaje.get("camion_id"), excepto=viaje_id)
-    _liberar_unidad(viaje.get("camion_id_2"), excepto=viaje_id)
+    sincronizar_viaje(viaje)
 
     detalle = f"Viaje finalizado, {datos.kms_recorridos} kms cargados"
     if datos.kms_descargado:
@@ -637,27 +672,6 @@ def _viajes_del_par(viaje_id: str, viaje: dict) -> list[dict]:
     return [{**v, "id": vid} for vid, v in par.items()]
 
 
-def _liberar_chofer(chofer_id) -> None:
-    """Igual que con las unidades: no se libera si le quedó otro viaje activo."""
-    if not chofer_id:
-        return
-    chofer_id = str(chofer_id)
-
-    en_uso = (
-        supabase.table("viajes")
-        .select("id")
-        .eq("chofer_id", chofer_id)
-        .in_("estado", ESTADOS_ACTIVOS)
-        .execute()
-    ).data
-    if en_uso:
-        return
-
-    supabase.table("choferes").update({"estado": "disponible"}).eq("id", chofer_id).in_(
-        "estado", ["esperando_iniciar_viaje", "viajando"]
-    ).execute()
-
-
 def eliminar_viaje(viaje_id: str, usuario_id: UUID) -> dict:
     """Borra el viaje de forma definitiva, con su vuelta y sus cargas de combustible.
 
@@ -691,12 +705,10 @@ def eliminar_viaje(viaje_id: str, usuario_id: UUID) -> dict:
     if not borrados:
         raise InternalError("No se pudo eliminar el viaje")
 
-    # Recién con los viajes ya borrados se liberan las unidades: así el chequeo de
-    # "¿está tomada por otro viaje activo?" no se encuentra con los que acabamos de borrar.
+    # Recién con los viajes ya borrados se ponen al día las unidades: así el recálculo
+    # no se encuentra con los viajes que acabamos de eliminar.
     for v in del_par:
-        _liberar_chofer(v.get("chofer_id"))
-        _liberar_unidad(v.get("camion_id"))
-        _liberar_unidad(v.get("camion_id_2"))
+        sincronizar_viaje(v)
 
     registrar_evento(
         usuario_id=usuario_id,

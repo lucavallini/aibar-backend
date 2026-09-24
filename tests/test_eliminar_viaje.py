@@ -100,19 +100,19 @@ def test_borrar_un_viaje_suelto(base):
     base["viajes"] = [_viaje()]
     base["cargas_combustible"] = [{"id": "carga-1"}]
 
-    with patch.object(viaje_service, "_liberar_unidad") as liberar:
+    with patch.object(viaje_service, "sincronizar_viaje") as sincronizar:
         r = viaje_service.eliminar_viaje("via-1", usuario_id="usr-1")
 
     assert base["borrados"]["viajes"] == ["via-1"]
     assert r["cargas_combustible_eliminadas"] == 1
-    liberar.assert_any_call("cam-1")
+    assert sincronizar.call_count == 1
 
 
 def test_se_borra_el_par_ida_y_vuelta(base):
     """Ida y vuelta son un mismo trabajo: pedir una borra las dos."""
     base["viajes"] = [_viaje("via-ida", vuelta="via-vuelta"), _viaje("via-vuelta")]
 
-    with patch.object(viaje_service, "_liberar_unidad"):
+    with patch.object(viaje_service, "sincronizar_viaje"):
         r = viaje_service.eliminar_viaje("via-ida", usuario_id="usr-1")
 
     assert sorted(base["borrados"]["viajes"]) == ["via-ida", "via-vuelta"]
@@ -123,7 +123,7 @@ def test_borrar_la_vuelta_tambien_se_lleva_la_ida(base):
     """Puede llegar el id de cualquiera de los dos."""
     base["viajes"] = [_viaje("via-ida", vuelta="via-vuelta"), _viaje("via-vuelta")]
 
-    with patch.object(viaje_service, "_liberar_unidad"):
+    with patch.object(viaje_service, "sincronizar_viaje"):
         viaje_service.eliminar_viaje("via-vuelta", usuario_id="usr-1")
 
     assert sorted(base["borrados"]["viajes"]) == ["via-ida", "via-vuelta"]
@@ -133,37 +133,33 @@ def test_la_referencia_a_la_vuelta_se_suelta_antes_de_borrar(base):
     """Si no, la clave foránea de la ida impide borrar la vuelta."""
     base["viajes"] = [_viaje("via-ida", vuelta="via-vuelta"), _viaje("via-vuelta")]
 
-    with patch.object(viaje_service, "_liberar_unidad"):
+    with patch.object(viaje_service, "sincronizar_viaje"):
         viaje_service.eliminar_viaje("via-ida", usuario_id="usr-1")
 
     assert ("viajes", {"viaje_vuelta_id": None}, {"id": ["via-ida", "via-vuelta"]}) in base["updates"]
 
 
-def test_un_viaje_en_curso_libera_al_chofer_y_al_camion(base):
+def test_un_viaje_en_curso_pone_al_dia_sus_unidades(base):
     """Se permite borrarlo, pero las unidades no pueden quedar reservadas sin viaje."""
     base["viajes"] = [_viaje(estado="en_curso")]
 
-    with patch.object(viaje_service, "_liberar_unidad") as liberar:
+    with patch.object(viaje_service, "sincronizar_viaje") as sincronizar:
         viaje_service.eliminar_viaje("via-1", usuario_id="usr-1")
 
-    liberados = [u for (t, payload, f) in base["updates"] if t == "choferes" for u in [f.get("id")]]
-    assert "cho-1" in liberados
-    liberar.assert_any_call("cam-1")
+    borrado = sincronizar.call_args[0][0]
+    assert (borrado["camion_id"], borrado["chofer_id"]) == ("cam-1", "cho-1")
 
 
-def test_las_unidades_se_liberan_despues_de_borrar(base):
-    """Al revés, el chequeo de 'tomada por otro viaje activo' vería al que estamos borrando."""
+def test_las_unidades_se_ponen_al_dia_despues_de_borrar(base):
+    """Al revés, el recálculo se encontraría con el viaje que estamos borrando."""
     base["viajes"] = [_viaje(estado="pendiente")]
     orden = []
 
-    def liberar(_):
-        orden.append("liberar")
-
-    with patch.object(viaje_service, "_liberar_unidad", side_effect=liberar):
+    with patch.object(viaje_service, "sincronizar_viaje", side_effect=lambda *a: orden.append("sync")):
         viaje_service.eliminar_viaje("via-1", usuario_id="usr-1")
 
     assert base["borrados"]["viajes"] == ["via-1"]
-    assert orden == ["liberar", "liberar"]
+    assert orden == ["sync"]
 
 
 def test_un_viaje_que_no_existe_no_rompe_nada(base):
@@ -179,7 +175,7 @@ def test_la_multa_se_desvincula_pero_no_se_borra(base):
     """Una multa es del camión y del chofer: tiene valor más allá del viaje."""
     base["viajes"] = [_viaje()]
 
-    with patch.object(viaje_service, "_liberar_unidad"):
+    with patch.object(viaje_service, "sincronizar_viaje"):
         r = viaje_service.eliminar_viaje("via-1", usuario_id="usr-1")
 
     assert ("multas", {"viaje_id": None}, {"viaje_id": ["via-1"]}) in base["updates"]
@@ -195,21 +191,18 @@ def test_la_cadena_de_vueltas_se_borra_entera(base):
         _viaje("via-3"),
     ]
 
-    with patch.object(viaje_service, "_liberar_unidad"):
+    with patch.object(viaje_service, "sincronizar_viaje"):
         r = viaje_service.eliminar_viaje("via-1", usuario_id="usr-1")
 
     assert sorted(base["borrados"]["viajes"]) == ["via-1", "via-2", "via-3"]
     assert r["eliminados"] == 3
 
 
-def test_el_chofer_con_otro_viaje_activo_no_se_libera(base):
-    """Liberarlo lo dejaría 'disponible' estando de viaje en otro lado."""
+def test_el_borrado_delega_el_estado_en_la_sincronizacion(base):
+    """Nadie decide estados por su cuenta: se recalculan desde los viajes que quedaron."""
     base["viajes"] = [_viaje()]
 
-    with patch.object(viaje_service, "_liberar_unidad"), patch.object(
-        viaje_service, "_liberar_chofer"
-    ) as liberar_chofer:
+    with patch.object(viaje_service, "sincronizar_viaje") as sincronizar:
         viaje_service.eliminar_viaje("via-1", usuario_id="usr-1")
 
-    # El servicio delega en _liberar_chofer, que es quien mira si le queda otro viaje.
-    liberar_chofer.assert_called_once_with("cho-1")
+    assert sincronizar.call_args[0][0]["chofer_id"] == "cho-1"
