@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from app.core.exceptions import BadRequestError, NotFoundError
 from app.database import supabase
 from app.services import telemetria_service
+from app.services.telemetria_service import ZONA_ARGENTINA
 
 GENERADO_EN = "2026-08-25T11:00:00-03:00"
 
@@ -254,7 +256,10 @@ def test_el_recorrido_se_recorta_a_la_ventana_del_viaje(base_de_datos):
 
 def test_un_viaje_en_curso_con_la_unidad_rodando_marca_en_camino(base_de_datos):
     """El último punto es dónde va, no dónde llegó."""
-    base_de_datos["viajes"] = [_viaje_fila(estado="en_curso", fecha_fin=None)]
+    # Un viaje en curso se compara contra el reloj, así que la salida va relativa a hoy:
+    # con una fecha fija el test empieza a fallar solo al pasar MAX_DIAS_RECORRIDO.
+    recien = (datetime.now(ZONA_ARGENTINA) - timedelta(hours=4)).isoformat()
+    base_de_datos["viajes"] = [_viaje_fila(estado="en_curso", fecha_fin=None, fecha_inicio=recien)]
     base_de_datos["camiones"] = [_camion("AE729EO")]
     rodando = _vehiculo_gps("AE729EO")
     rodando["position"]["speedKph"] = 72.0
